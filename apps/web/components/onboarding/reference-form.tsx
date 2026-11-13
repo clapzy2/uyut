@@ -19,9 +19,12 @@ export function ReferenceForm({
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [url, setUrl] = useState('')
+  const [uploading, setUploading] = useState(false)
+  const busy = pending || uploading
   const uploadForProject = uploadReference.bind(null, projectId)
 
   function finish(skipReference = false) {
+    if (busy) return
     setError(null)
     startTransition(async () => {
       try {
@@ -47,8 +50,8 @@ export function ReferenceForm({
 
   return (
     <fieldset
-      disabled={pending}
-      aria-busy={pending || undefined}
+      disabled={busy}
+      aria-busy={busy || undefined}
       aria-label="Любимый интерьер"
       className="m-0 flex min-w-0 flex-col gap-7 border-0 p-0"
     >
@@ -82,6 +85,7 @@ export function ReferenceForm({
           pendingLabel="Загружаем…"
           successTitle="Картинка сохранена"
           action={uploadForProject}
+          onPendingChange={setUploading}
         />
         <FieldHint id="reference-limit">{PHOTO_LIMIT_TEXT}</FieldHint>
       </div>
@@ -91,19 +95,19 @@ export function ReferenceForm({
         <Button
           type="button"
           variant="secondary"
-          disabled={pending}
+          disabled={busy}
           onClick={() => router.push(`/onboarding/step-4?project=${projectId}`)}
         >
           Назад
         </Button>
-        <Button type="button" disabled={pending} onClick={() => finish()}>
+        <Button type="button" disabled={busy} onClick={() => finish()}>
           {pending ? 'Сохраняем…' : 'Готово'}
         </Button>
       </div>
       <button
         type="button"
         onClick={() => finish(true)}
-        disabled={pending}
+        disabled={busy}
         className="self-start py-1.5 text-sm text-ink-2 underline decoration-line-strong underline-offset-4 hover:text-ink"
       >
         Пропустить этот шаг

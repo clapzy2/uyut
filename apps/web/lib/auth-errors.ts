@@ -8,6 +8,8 @@ type AuthErrorLike =
   | undefined
 
 const byCode: Record<string, string> = {
+  CONSENT_REQUIRED:
+    'Подтвердите согласие на обработку данных и принятие соглашения. Если галочка уже стоит, обновите страницу.',
   INVALID_EMAIL_OR_PASSWORD: 'Почта или пароль не подходят. Проверьте и попробуйте ещё раз.',
   USER_ALREADY_EXISTS: 'Такая почта уже зарегистрирована. Войдите или восстановите пароль.',
   USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL:

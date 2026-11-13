@@ -31,6 +31,7 @@ export function RegisterForm() {
       password: values.password,
       name: values.email.split('@')[0] ?? '',
       callbackURL: '/profile?verified=1',
+      fetchOptions: { body: { consent: true } },
     })
     if (error) {
       form.setError('root', { message: authErrorMessage(error) })

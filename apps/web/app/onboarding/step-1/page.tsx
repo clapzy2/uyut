@@ -3,15 +3,18 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { uploadPlan } from '@/actions/projects'
+import { AddRoomDialog } from '@/components/add-room-dialog'
 import { FileUploader } from '@/components/file-uploader'
 import { ApartmentForm } from '@/components/onboarding/apartment-form'
 import { OnboardingShell } from '@/components/onboarding/onboarding-shell'
 import { PlanReadingCard } from '@/components/plan-reading-card'
+import { ProjectSettingsDialog } from '@/components/project-settings-dialog'
+import { RoomSettingsDialog } from '@/components/room-settings-dialog'
 import { PLAN_ACCEPT, PLAN_LIMIT_TEXT, PLAN_MAX_BYTES } from '@/lib/files/rules'
 import type { StepParams } from '@/lib/onboarding/guard'
 import { getOnboardingState } from '@/lib/onboarding/repository'
 import { AccessError } from '@/lib/projects/access'
-import { fileNameFromKey } from '@/lib/projects/format'
+import { fileNameFromKey, formatArea } from '@/lib/projects/format'
 import { planEditRevision } from '@/lib/projects/plan-edit-revision'
 import { getSession } from '@/lib/session'
 import { presignedObjectUrl } from '@/lib/storage'
@@ -40,7 +43,7 @@ export default async function Step1({ searchParams }: StepParams) {
     )
   }
 
-  // Проект уже создан: этот экран остаётся первым шагом и просит план квартиры
+  // При возврате показываем сохранённую квартиру, не создавая второй проект.
   let project: Awaited<ReturnType<typeof getOnboardingState>>
   try {
     project = await getOnboardingState(session.user.id, projectId)
@@ -65,10 +68,30 @@ export default async function Step1({ searchParams }: StepParams) {
   return (
     <OnboardingShell
       step={1}
-      title="Загрузите план"
-      hint="PDF, фотография или скриншот плана. Для альбома выберите обмерный лист существующего состояния. Найденные комнаты и размеры покажем для сверки."
+      title={project.rooms.length > 0 ? 'Проверьте квартиру и комнаты' : 'Загрузите план'}
+      hint="План необязателен. Можно поправить название и комнаты или загрузить PDF, фотографию или скриншот плана. Для альбома выберите обмерный лист существующего состояния."
     >
       <div className="flex flex-col gap-7">
+        <section aria-label="Сохранённая квартира" className="flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg">{project.title}</h2>
+            <ProjectSettingsDialog projectId={project.id} initial={project} />
+          </div>
+          {project.rooms.map((room) => (
+            <fieldset
+              key={room.id}
+              aria-label={room.name}
+              className="m-0 flex min-w-0 items-center justify-between gap-3 border-0 p-0"
+            >
+              <p>
+                {room.name}
+                {room.areaM2 !== null ? ` · ${formatArea(room.areaM2)}` : ''}
+              </p>
+              {room.kind !== 'bath' ? <RoomSettingsDialog room={room} /> : null}
+            </fieldset>
+          ))}
+          <AddRoomDialog projectId={project.id} />
+        </section>
         {planSrc ? (
           <div className="overflow-hidden border border-line bg-muted">
             {/* biome-ignore lint/performance/noImgElement: подписанная ссылка живёт 15 минут, оптимизатор next/image здесь не нужен */}

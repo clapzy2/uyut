@@ -5,8 +5,9 @@ import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
 import { canCreateProject, PROJECT_LIMIT } from '@/lib/billing/repository'
 import { preparePhoto, UploadError } from '@/lib/files/uploads'
+import { fetchReferenceImage } from '@/lib/onboarding/reference-download'
 import * as onboarding from '@/lib/onboarding/repository'
-import { AccessError } from '@/lib/projects/access'
+import { AccessError, assertOwner } from '@/lib/projects/access'
 import { getSession } from '@/lib/session'
 import { deleteObject, putObject } from '@/lib/storage'
 import {
@@ -150,6 +151,7 @@ export async function saveReferenceLink(
     return { ok: true, data: { saved: false } }
   }
   try {
+    await assertOwner(userId, id.data)
     const file = await fetchReferenceImage(parsed.data.url)
     if (!file) {
       return {
@@ -181,6 +183,7 @@ export async function uploadReference(
     return { ok: false, error: 'Выберите файл с картинкой.' }
   }
   try {
+    await assertOwner(userId, id.data)
     await storeReference(userId, id.data, file)
     return { ok: true, data: undefined }
   } catch (error) {
@@ -215,52 +218,5 @@ async function storeReference(userId: string, projectId: string, file: File): Pr
   const { previousKey } = await onboarding.saveReference(userId, projectId, key)
   if (previousKey) {
     await deleteObject(previousKey).catch(() => undefined)
-  }
-}
-
-const REFERENCE_LIMIT_BYTES = 10 * 1024 * 1024
-
-/**
- * Прямая ссылка на картинку скачивается как есть, страница Pinterest — через og:image.
- * Pinterest защищается от серверных запросов, поэтому неудача здесь ожидаема и не считается ошибкой.
- */
-async function fetchReferenceImage(url: string): Promise<File | null> {
-  const direct = await downloadImage(url)
-  if (direct) {
-    return direct
-  }
-  try {
-    const page = await fetch(url, {
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; DomitsaBot/1.0)' },
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!page.ok) {
-      return null
-    }
-    const html = (await page.text()).slice(0, 200_000)
-    const match =
-      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ??
-      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)
-    const found = match?.[1]
-    return found ? await downloadImage(found) : null
-  } catch {
-    return null
-  }
-}
-
-async function downloadImage(url: string): Promise<File | null> {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(8000) })
-    const type = response.headers.get('content-type') ?? ''
-    if (!response.ok || !type.startsWith('image/')) {
-      return null
-    }
-    const bytes = await response.arrayBuffer()
-    if (bytes.byteLength === 0 || bytes.byteLength > REFERENCE_LIMIT_BYTES) {
-      return null
-    }
-    return new File([bytes], 'reference', { type })
-  } catch {
-    return null
   }
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { nearestStyles, styleLibrary } from '@uyut/ai'
-import { users } from '@uyut/db'
-import { inArray } from 'drizzle-orm'
+import { projects, users } from '@uyut/db'
+import { eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createBatch, latestBatch, setConceptLike } from '@/lib/concepts/repository'
 import { getDb } from '@/lib/db'
@@ -59,6 +59,52 @@ describe('onboarding and concepts in a real database', () => {
     expect(state.rooms.every((room) => (room.areaM2 ?? 0) > 0)).toBe(true)
     expect(state.totalAreaM2 ?? 0).toBeGreaterThan(30)
     expect(state.houseSeries).toBe('p-44')
+  })
+
+  it('откатывает проект, если вставка комнат завершилась ошибкой', async () => {
+    const isolatedOwner = await createUser()
+    await expect(
+      createFromApartment(isolatedOwner, {
+        mode: 'manual',
+        title: 'Проект не должен сохраниться',
+        totalAreaM2: null,
+        rooms: [
+          { kind: 'living', name: 'Гостиная', areaM2: 20 },
+          // Выходим за numeric(6, 2), чтобы ошибка произошла именно в БД.
+          { kind: 'bedroom', name: 'Спальня', areaM2: 100_000 },
+        ],
+      }),
+    ).rejects.toThrow()
+    const remaining = await getDb()
+      .select()
+      .from(projects)
+      .where(eq(projects.ownerId, isolatedOwner))
+    expect(remaining).toEqual([])
+  })
+
+  it('сохраняет прежние голоса и вектор при ошибке вставки новых голосов', async () => {
+    const created = await createFromApartment(owner, {
+      mode: 'series',
+      title: 'Откат голосов',
+      seriesId: 'p-44',
+      roomCount: 1,
+    })
+    const styleId = styleLibrary[0]?.id
+    if (!styleId) throw new Error('style library is empty')
+    await saveStyleVotes(owner, created.project.id, [{ styleId, liked: true }])
+    const before = await getOnboardingState(owner, created.project.id)
+
+    await expect(
+      saveStyleVotes(owner, created.project.id, [
+        // Имитируем ошибку записи после удаления старых голосов (NOT NULL).
+        { styleId: null as unknown as string, liked: false },
+      ]),
+    ).rejects.toThrow()
+
+    const after = await getOnboardingState(owner, created.project.id)
+    expect(after.styleVotes).toEqual(before.styleVotes)
+    expect(after.styleTags).toEqual(before.styleTags)
+    expect(after.styleReferenceEmbedding).toEqual(before.styleReferenceEmbedding)
   })
 
   it('семья и бюджет сохраняются между шагами', async () => {

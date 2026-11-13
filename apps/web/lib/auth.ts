@@ -123,10 +123,12 @@ function createAuth() {
       user: {
         create: {
           // Форма регистрации не спрашивает имя: до первого редактирования профиля берём часть адреса.
-          // Здесь же отмечаем согласие: аккаунт заводится только через форму, где галочка
-          // обязательна, а редакцию документов и время знает сервер, а не браузер.
-          before: async (user) => {
-            const consent = { consentAcceptedAt: new Date(), consentVersion: operator.updatedAt }
+          // Согласие фиксируем только при явном подтверждении в запросе регистрации.
+          before: async (user, ctx) => {
+            const consent =
+              ctx?.path === '/sign-up/email' && ctx.body?.consent === true
+                ? { consentAcceptedAt: new Date(), consentVersion: operator.updatedAt }
+                : {}
             const name = user.name?.trim()
             if (name) {
               return { data: { ...user, ...consent } }
@@ -138,6 +140,12 @@ function createAuth() {
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === '/sign-up/email' && ctx.body?.consent !== true) {
+          throw new APIError('BAD_REQUEST', {
+            code: 'CONSENT_REQUIRED',
+            message: 'Подтвердите согласие на обработку персональных данных и принятие соглашения.',
+          })
+        }
         if (ctx.path !== '/sign-in/email') {
           return
         }

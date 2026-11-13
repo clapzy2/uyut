@@ -18,6 +18,7 @@ type Props = {
   pendingLabel: string
   successTitle: string
   action: (formData: FormData) => Promise<ActionResult>
+  onPendingChange?: (pending: boolean) => void
 }
 
 // Один загрузчик на планы и фото: проверка размера до отправки, остальное решает сервер
@@ -30,6 +31,7 @@ export function FileUploader({
   pendingLabel,
   successTitle,
   action,
+  onPendingChange,
 }: Props) {
   const router = useRouter()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -50,6 +52,7 @@ export function FileUploader({
       return
     }
     setPending(true)
+    onPendingChange?.(true)
     const formData = new FormData()
     formData.set(field, file)
     try {
@@ -69,6 +72,7 @@ export function FileUploader({
       })
     } finally {
       setPending(false)
+      onPendingChange?.(false)
     }
   }
 

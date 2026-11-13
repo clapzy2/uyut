@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
+import sharp from 'sharp'
 
 const PASSWORD = 'lampa-u-okna-2026'
 const ORIGIN = `http://localhost:${process.env.PORT ?? '3000'}`
@@ -39,6 +40,19 @@ test.describe('onboarding', () => {
 
     // Шаг 2: состав семьи
     await expect(page).toHaveURL(/\/onboarding\/step-2\?project=[0-9a-f-]{36}/)
+    await page.getByRole('button', { name: 'Назад', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Проверьте квартиру и комнаты' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Квартира на Мира' })).toBeVisible()
+    await page
+      .getByRole('group', { name: 'Гостиная', exact: true })
+      .getByRole('button', { name: 'Настроить' })
+      .click()
+    await page.getByLabel('Название', { exact: true }).fill('Комната для отдыха')
+    await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Настройки комнаты' })).toBeHidden()
+    await page.reload()
+    await expect(page.getByRole('group', { name: 'Комната для отдыха', exact: true })).toBeVisible()
+    await page.getByRole('link', { name: 'Дальше', exact: true }).click()
     await page.getByText('Есть кот или собака').click()
     await page.getByRole('button', { name: 'Дальше' }).click()
 
@@ -61,18 +75,29 @@ test.describe('onboarding', () => {
     await expect(page.getByText(/Черновик оценок восстановлен/)).toBeVisible()
     await page.getByRole('button', { name: 'Дальше' }).click()
 
-    // Шаг 5: референс необязателен
+    // Шаг 5: файл сохраняется до завершения анкеты и переживает обновление.
     await expect(page).toHaveURL(/\/onboarding\/step-5/)
-    await page.getByRole('button', { name: 'Пропустить этот шаг' }).click()
+    const reference = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: '#65819a' },
+    })
+      .png()
+      .toBuffer()
+    await page
+      .locator('#reference')
+      .setInputFiles({ name: 'reference.png', mimeType: 'image/png', buffer: reference })
+    await expect(page.getByText('Картинка сохранена', { exact: true })).toBeVisible()
+    await page.reload()
+    await expect(page.getByAltText('Ваш референс')).toBeVisible()
+    await page.getByRole('button', { name: 'Готово', exact: true }).click()
 
     await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/)
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Квартира на Мира')
     await expect(page.getByText('Расскажите о себе')).toHaveCount(0)
-    await expect(page.getByRole('link', { name: /Гостиная/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Комната для отдыха/ })).toBeVisible()
     await expect(page.getByRole('link', { name: /Кухня/ })).toBeVisible()
 
     // На комнате кнопка генерации активна
-    await page.getByRole('link', { name: /Гостиная/ }).click()
+    await page.getByRole('link', { name: /Комната для отдыха/ }).click()
     await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()
   })
 })

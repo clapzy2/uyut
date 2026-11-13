@@ -58,36 +58,38 @@ export async function createFromApartment(
         ? (input.totalAreaM2 ?? null)
         : (input.totalAreaM2 ?? null)
 
-  const [project] = await db
-    .insert(projects)
-    .values({
-      ownerId: userId,
-      title: input.title,
-      houseSeries: input.mode === 'series' ? input.seriesId : null,
-      totalAreaM2,
-    })
-    .returning()
-  if (!project) {
-    throw new Error('project insert returned nothing')
-  }
+  return db.transaction(async (tx) => {
+    const [project] = await tx
+      .insert(projects)
+      .values({
+        ownerId: userId,
+        title: input.title,
+        houseSeries: input.mode === 'series' ? input.seriesId : null,
+        totalAreaM2,
+      })
+      .returning()
+    if (!project) {
+      throw new Error('project insert returned nothing')
+    }
 
-  const planned = input.mode === 'series' ? layout : manual
-  if (planned.length === 0) {
-    return { project, rooms: [] }
-  }
-  const created = await db
-    .insert(rooms)
-    .values(
-      planned.map((room, index) => ({
-        projectId: project.id,
-        kind: room.kind,
-        name: room.name,
-        areaM2: room.areaM2 ?? null,
-        orderIndex: index,
-      })),
-    )
-    .returning()
-  return { project, rooms: created }
+    const planned = input.mode === 'series' ? layout : manual
+    if (planned.length === 0) {
+      return { project, rooms: [] }
+    }
+    const created = await tx
+      .insert(rooms)
+      .values(
+        planned.map((room, index) => ({
+          projectId: project.id,
+          kind: room.kind,
+          name: room.name,
+          areaM2: room.areaM2 ?? null,
+          orderIndex: index,
+        })),
+      )
+      .returning()
+    return { project, rooms: created }
+  })
 }
 
 export async function saveHousehold(
@@ -122,20 +124,22 @@ export async function saveStyleVotes(
 ): Promise<{ likedCount: number; styleTags: string[] }> {
   const project = await assertOwner(userId, projectId)
   const db = getDb()
-  await db.delete(styleVotes).where(eq(styleVotes.projectId, project.id))
-  if (votes.length > 0) {
-    await db.insert(styleVotes).values(votes.map((vote) => ({ projectId: project.id, ...vote })))
-  }
   const liked = votes.filter((vote) => vote.liked).map((vote) => vote.styleId)
   const vector = styleVector(liked)
   const styleTags = styleTagsFromVector(vector)
-  await db
-    .update(projects)
-    .set({
-      styleTags,
-      styleReferenceEmbedding: liked.length > 0 ? vector : null,
-    })
-    .where(eq(projects.id, project.id))
+  await db.transaction(async (tx) => {
+    await tx.delete(styleVotes).where(eq(styleVotes.projectId, project.id))
+    if (votes.length > 0) {
+      await tx.insert(styleVotes).values(votes.map((vote) => ({ projectId: project.id, ...vote })))
+    }
+    await tx
+      .update(projects)
+      .set({
+        styleTags,
+        styleReferenceEmbedding: liked.length > 0 ? vector : null,
+      })
+      .where(eq(projects.id, project.id))
+  })
   return { likedCount: liked.length, styleTags }
 }
 
