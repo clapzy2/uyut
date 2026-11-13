@@ -25,14 +25,21 @@ export function ProfileForm({
   const { errors, isSubmitting, isDirty } = form.formState
 
   async function onSubmit(values: ProfileInput) {
-    const result = await updateProfile(values)
-    if (!result.ok) {
-      form.setError('root', { message: result.error })
-      return
+    try {
+      const result = await updateProfile(values)
+      if (!result.ok) {
+        form.setError('root', { message: result.error })
+        return
+      }
+      toast({ title: 'Сохранили', tone: 'success' })
+      form.reset(values)
+      router.refresh()
+    } catch {
+      form.setError('root', {
+        message:
+          'Не удалось получить ответ сервера. Проверьте соединение и попробуйте сохранить ещё раз.',
+      })
     }
-    toast({ title: 'Сохранили', tone: 'success' })
-    form.reset(values)
-    router.refresh()
   }
 
   return (
