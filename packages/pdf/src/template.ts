@@ -81,6 +81,8 @@ const CSS = `
 
   /* комната */
   .render { height: 100mm; overflow: hidden; background: #efe9dc; }
+  /* Концепты и исходные фото показываем целиком: кадрирование скрывает мебель и проёмы. */
+  .render img, .was img, .thumbs img, .band img { object-fit: contain; }
   .idea { display: grid; gap: 3mm; align-content: start; }
   .was { display: grid; grid-template-columns: 42mm 1fr; gap: 4mm; align-items: start; }
   .was .img { height: 31mm; overflow: hidden; filter: saturate(0.85); }
