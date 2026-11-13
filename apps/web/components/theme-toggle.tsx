@@ -44,7 +44,7 @@ export function ThemeToggle({ initial }: { initial: Theme }) {
         title={`Тема: ${active.label}`}
         aria-label={`Тема: ${active.label}. Переключить`}
         onClick={cycle}
-        className="group grid size-9 shrink-0 place-items-center rounded-full border border-line text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:border-line-strong hover:text-ink active:scale-90 sm:hidden"
+        className="group grid size-11 shrink-0 place-items-center rounded-full border border-line text-ink-2 transition-[color,border-color,transform] duration-200 ease-ui hover:border-line-strong hover:text-ink active:scale-90 sm:hidden"
       >
         <Icon
           name={active.icon}

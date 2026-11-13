@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
+import sharp from 'sharp'
 
 const PASSWORD = 'lampa-u-okna-2026'
 const ORIGIN = `http://localhost:${process.env.PORT ?? '3000'}`
@@ -12,10 +13,20 @@ async function expectFitsViewport(page: Page): Promise<void> {
   const sizes = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
+    overflowing: Array.from(document.querySelectorAll('body *'))
+      .filter(
+        (element) =>
+          element.getBoundingClientRect().right > document.documentElement.clientWidth + 1,
+      )
+      .map((element) => ({
+        tag: element.tagName,
+        className: element.className,
+        text: element.textContent?.slice(0, 100),
+      })),
   }))
   expect(
     sizes.scroll,
-    `страница шире экрана: ${sizes.scroll} > ${sizes.client}`,
+    `страница шире экрана: ${sizes.scroll} > ${sizes.client}; ${JSON.stringify(sizes.overflowing)}`,
   ).toBeLessThanOrEqual(sizes.client + 1)
 }
 
@@ -23,9 +34,14 @@ test.describe('mobile critical path', () => {
   test.use({
     extraHTTPHeaders: contextHeaders(),
     viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
   })
 
-  test('landing, registration and household settings fit a phone viewport', async ({ page }) => {
+  test('new user completes onboarding, uploads a room photo and opens the summary on mobile', async ({
+    page,
+  }) => {
+    test.setTimeout(60_000)
     await page.goto('/')
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(
       'Продумайте обстановку своей квартиры.',
@@ -61,5 +77,68 @@ test.describe('mobile critical path', () => {
     }
     await page.getByText('Есть кот или собака', { exact: true }).click()
     await expect(switches.first()).toBeChecked()
+    await page.getByRole('button', { name: 'Дальше' }).tap()
+    await expect(page).toHaveURL(/\/onboarding\/step-3/)
+    await expectFitsViewport(page)
+    await page.getByRole('button', { name: 'Дальше' }).tap()
+    await expect(page).toHaveURL(/\/onboarding\/step-4/)
+    await expectFitsViewport(page)
+    for (let index = 0; index < 10; index += 1) {
+      await page.getByRole('button', { name: 'Нравится', exact: true }).tap()
+    }
+    await page.getByRole('button', { name: 'Дальше' }).tap()
+    await expect(page).toHaveURL(/\/onboarding\/step-5/)
+    await expectFitsViewport(page)
+    const photo = await sharp({
+      create: { width: 640, height: 480, channels: 3, background: '#65819a' },
+    })
+      .png()
+      .toBuffer()
+    await page.locator('#reference').setInputFiles({
+      name: 'mobile-reference.png',
+      mimeType: 'image/png',
+      buffer: photo,
+    })
+    await expect(page.getByText('Картинка сохранена', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Готово', exact: true }).tap()
+    await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/)
+    const projectUrl = page.url()
+    await expectFitsViewport(page)
+    await page.getByRole('link', { name: /Гостиная/ }).tap()
+    await page.locator('#photo').setInputFiles({
+      name: 'mobile-room.png',
+      mimeType: 'image/png',
+      buffer: photo,
+    })
+    await expect(page.getByText('Фото загружено')).toBeVisible()
+    await page.reload()
+    await expect(page.locator('img[src*="/photo/"]')).toBeVisible()
+    // Do not start generation: this smoke test never calls a paid model.
+    await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()
+    await expectFitsViewport(page)
+    await page.goto(projectUrl)
+    await page.getByRole('link', { name: 'Список покупок и смета' }).tap()
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Итоги проекта')
+    await expect(page.getByText('Список пока пуст.')).toBeVisible()
+    await expectFitsViewport(page)
+    const exportButton = page.getByRole('button', {
+      name: 'Бесплатно собрать PDF с водяным знаком',
+    })
+    await expect(exportButton).toBeVisible()
+    // Queue-enabled environments may incur external work; only exercise the local error state.
+    if (!process.env.TRIGGER_SECRET_KEY) {
+      await exportButton.tap()
+      await expect(page.getByText('Сборка PDF пока не подключена')).toBeVisible()
+    }
+    await page.setViewportSize({ width: 320, height: 844 })
+    await expectFitsViewport(page)
+    const headerControls = page.getByRole('banner').locator('a:visible, button:visible')
+    for (const control of await headerControls.all()) {
+      const box = await control.boundingBox()
+      expect(box).not.toBeNull()
+      expect(box?.height).toBeGreaterThanOrEqual(44)
+      expect(box?.x).toBeGreaterThanOrEqual(0)
+      expect((box?.x ?? 320) + (box?.width ?? 0)).toBeLessThanOrEqual(320)
+    }
   })
 })
