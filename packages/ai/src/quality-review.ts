@@ -3,7 +3,7 @@ import { hasComparableFraming, prepareLocalizedOpeningCheck } from '#review-fram
 import { falQueue, toDataUri } from './fal-queue'
 import {
   observeEmptySites,
-  observeFurnitureAppearance,
+  observeFurnitureProperties,
   registeredOpeningDetail,
   sourceComparisonClaims,
 } from './quality-review-source'
@@ -74,7 +74,7 @@ const LOCALIZED_OPENING_PROMPT = `Для проёма дополнительно
 
 function referenceComparisonPrompt(localized: boolean) {
   const localizedPrompt = localized ? `${LOCALIZED_OPENING_PROMPT}\n` : ''
-  return `Сравни стационарную технику и проёмы: первый кадр — исходник, второй — результат. Найди явно добавленные, исчезнувшие или перенесённые радиаторы, кондиционеры, телевизоры, вентиляцию, встроенную технику, окна и двери. Это перечень для сравнения, а не требование иметь эти предметы. Также проверь сохранение конкретных предметов мебели, только если клиент явно назвал их и попросил сохранить. Цвет, материал и видимую форму мебели проверяй только для конкретного предмета, который клиент явно просит сохранить без изменений. Например, перекраска покрывала не разрешает перекрасить подушки, если их попросили оставить прежними. Не проверяй общие вкусы, стиль, доступ или остальные пожелания. Разницу освещения, теней, бликов и небольшие оттеночные отклонения не называй изменением цвета; скрытый или обрезанный предмет не позволяет проверить сохранение.
+  return `Сравни стационарную технику и проёмы: первый кадр — исходник, второй — результат. Найди явно добавленные, исчезнувшие или перенесённые радиаторы, кондиционеры, телевизоры, вентиляцию, встроенную технику, окна и двери. Это перечень для сравнения, а не требование иметь эти предметы. Также проверь сохранение конкретных предметов мебели, только если клиент явно назвал их и попросил сохранить. Цвет, материал и видимую форму мебели проверяй только для конкретного предмета, который клиент явно просит сохранить без изменений. Например, перекраска покрывала не разрешает перекрасить подушки, если их попросили оставить прежними. Для цвета и материала сравнивай один конкретный экземпляр: добавь instanceScope=single и instanceAnchor с положением относительно видимого ориентира и формой, без указания цвета. Если речь о группе подушек, раздели её на отдельные экземпляры. Левая и правая подушки могут изначально иметь разные цвета; не сравнивай один экземпляр с другим и не описывай всю группу одним цветом. Если конкретный экземпляр сопоставить нельзя, не заявляй его перекраску. Не проверяй общие вкусы, стиль, доступ или остальные пожелания. Разницу освещения, теней, бликов и небольшие оттеночные отклонения не называй изменением цвета; скрытый или обрезанный предмет не позволяет проверить сохранение.
 Изменение можно заявлять только при сопоставимом открытом месте на обоих кадрах. Предмет в раскрытой части результата не доказывает добавление, если его место на исходнике за кадром или закрыто. Для добавления нужен тот же открытый участок исходника; для исчезновения — видимый предмет исходника и открытое соответствующее место результата. Не объявляй скрытый, обрезанный или закрытый предмет исчезнувшим или добавленным. Не придумывай дефект при неоднозначности.
 Найди общий неподвижный ориентир, однозначно узнаваемый на обоих фото независимо от проверяемого предмета. Опиши тот же участок относительно него, например «сразу под подоконником единственного арочного окна». «Слева», «на левой стене» и «в дальнем углу кадра» при смене ракурса не определяют один и тот же участок. Если общего ориентира нет или точное место скрыто шторой хотя бы на одном фото, пропусти замечание. Для переноса проверь обе позиции и укажи в location прежнее место.
 Только для opening_conflict требуются две разные неподвижные архитектурные границы, ограничивающие участок стены по обе стороны проёма и узнаваемые на обоих кадрах. Опиши их в sourceCheck.boundaries как массив из двух нейтральных коротких строк, например ["косяк соседнего арочного окна","угол стыка стены с нишей"]. Сам проверяемый проём, мебель, светильники и положение в кадре не задают границ участка. Если хотя бы одна граница не найдена на любом кадре или поверхность между ними скрыта, пропусти замечание. Для техники достаточно одного общего ориентира.
@@ -407,26 +407,26 @@ export async function reviewConceptImage(
       )
     }
 
-    const appearanceCandidates = propertyClaims.filter(
+    const propertyCandidates = propertyClaims.filter(
       (claim) =>
-        claim.property === 'appearance' &&
+        (claim.property === 'appearance' || Boolean(claim.instanceAnchor)) &&
         claim.preservationQuote &&
         latestRequest.includes(claim.preservationQuote) &&
         typeof issues[claim.id]?.confidence === 'number' &&
         Number(issues[claim.id]?.confidence) >= 0.8 &&
         Number(issues[claim.id]?.confidence) <= 1,
     )
-    let appearanceObservations: Awaited<ReturnType<typeof observeFurnitureAppearance>> = new Map()
-    if (observableClaims.length === 0 && appearanceCandidates.length > 0) {
+    let propertyObservations: Awaited<ReturnType<typeof observeFurnitureProperties>> = new Map()
+    if (observableClaims.length === 0 && propertyCandidates.length > 0) {
       const remaining = deadline - Date.now()
       if (remaining > 0) {
         additionalReviewRequests = 2
         try {
-          appearanceObservations = await observeFurnitureAppearance(
+          propertyObservations = await observeFurnitureProperties(
             apiKey,
             reference,
             image,
-            appearanceCandidates,
+            propertyCandidates,
             {
               model: QUALITY_REVIEW_MODEL,
               endpoint: QUALITY_REVIEW_ENDPOINT,
@@ -450,14 +450,14 @@ export async function reviewConceptImage(
         !latestRequest.includes(claim.preservationQuote)
       )
         continue
-      const appearance = appearanceObservations.get(claim.id)
-      if (claim.property === 'appearance' && appearance?.state !== 'changed') continue
-      const before = appearance?.before ?? claim.before
-      const after = appearance?.after ?? claim.after
+      const observation = propertyObservations.get(claim.id)
+      if (observation?.state !== 'changed') continue
+      const before = observation.before
+      const after = observation.after
       const warning = {
         code: 'requirement_unconfirmed',
-        detail: `Не подтверждено: сохранение ${claim.property === 'color' ? 'цвета' : claim.property === 'material' ? 'материала' : 'внешнего вида'} «${shortPropertyObservation(claim.object, 40)}». Было: ${shortPropertyObservation(before, 50)}. Стало: ${shortPropertyObservation(after, 50)}. Сверьте с исходником.`,
-        confidence: appearance ? Math.min(confidence, appearance.confidence) : confidence,
+        detail: `Не подтверждено: сохранение ${claim.property === 'color' ? 'цвета' : claim.property === 'material' ? 'материала' : 'внешнего вида'} «${shortPropertyObservation(claim.instanceAnchor ?? claim.object, 40)}». Было: ${shortPropertyObservation(before, 50)}. Стало: ${shortPropertyObservation(after, 50)}. Сверьте с исходником.`,
+        confidence: Math.min(confidence, observation.confidence),
       }
       propertyWarnings.push(
         ...parseQualityReview(
@@ -488,7 +488,7 @@ export async function reviewConceptImage(
       issues: mergedIssues,
       sourceComparison:
         propertyClaims.every(
-          (claim) => appearanceObservations.get(claim.id)?.state === 'unchanged',
+          (claim) => propertyObservations.get(claim.id)?.state === 'unchanged',
         ) && confirmed.size === eligibleClaims.length
           ? 'verified'
           : 'limited',

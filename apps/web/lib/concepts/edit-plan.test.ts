@@ -1,7 +1,40 @@
-import { editStepPrompt, KEEP_THE_REST, parseEditPlan } from '@uyut/ai'
+import { buildEditPlan, editStepPrompt, KEEP_THE_REST, parseEditPlan } from '@uyut/ai'
 import { describe, expect, it } from 'vitest'
 
 describe('parseEditPlan', () => {
+  it('останавливает неоднозначную перекраску покрывала до платного планировщика', async () => {
+    const plan = await buildEditPlan(
+      'must-not-call-network',
+      'Измени только цвет покрывала на приглушённый терракотовый. Подушки оставь прежними.',
+    )
+    expect(plan.steps).toEqual([])
+    expect(plan.warningRu).toContain('основное покрывало')
+    expect(plan.warningRu).toContain('плед у ног')
+  })
+
+  it.each([
+    'Сделать покрывало терракотовым',
+    'Измени цвет покрывала, подушки оставь прежними',
+    'Перекрась покрывало, шкаф не меняй',
+  ])('не теряет неоднозначную цель из-за соседнего запрета: %s', async (request) => {
+    const plan = await buildEditPlan('must-not-call-network', request)
+    expect(plan.steps).toEqual([])
+    expect(plan.warningRu).toContain('Уточните')
+  })
+
+  it.each([
+    'Перекрась основное покрывало в терракотовый. Плед и подушки не меняй.',
+    'Перекрась покрывало на всю кровать, не плед.',
+    'Перекрась плед у ног. Покрывало не меняй.',
+    'Перекрась шкаф. Покрывало оставь прежним.',
+    'Не перекрашивай покрывало, перекрась шкаф.',
+    'Покрывало не менять, шкаф сделать зелёным.',
+  ])('не блокирует конкретный предмет или запрет: %s', async (request) => {
+    const plan = await buildEditPlan(undefined, request)
+    expect(plan.steps).toHaveLength(1)
+    expect(plan.warningRu).toBe('')
+    expect(editStepPrompt(plan.steps[0]?.prompt ?? '', request)).toContain(JSON.stringify(request))
+  })
   it('перенос разбирается на два шага', () => {
     const plan = parseEditPlan(
       '{"steps":[{"titleRu":"Убрать шкаф справа","prompt":"Remove the cabinet on the right","needsObject":false},{"titleRu":"Поставить шкаф под окном","prompt":"Place the cabinet under the window","needsObject":true}],"warningRu":""}',
