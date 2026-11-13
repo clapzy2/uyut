@@ -6,7 +6,7 @@ import {
   projectExports,
   projects,
 } from '@uyut/db'
-import { and, desc, eq, inArray } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
 import { getPlan } from '@/lib/billing/repository'
 import { getDb } from '@/lib/db'
 import { getEnv } from '@/lib/env'
@@ -18,6 +18,7 @@ import {
 } from '@/lib/projects/access'
 import { presignedObjectUrl } from '@/lib/storage'
 import { exportQueueStatus } from './run-status'
+import { recoverableUpload } from './upload-recovery'
 
 export type ExportView = {
   statusUnconfirmed?: boolean
@@ -60,7 +61,23 @@ async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
     rows.map(async (row) => {
       if (row.status !== 'pending' && row.status !== 'running') return row
       const status = await exportQueueStatus(row.id, row.runId).catch(() => null)
-      if (status?.terminal) {
+      const upload = !status || status.terminal ? await recoverableUpload(row) : 'legacy'
+      if (upload === 'ready' && row.pdfKey) {
+        await getDb()
+          .update(projectExports)
+          .set({
+            status: 'ready',
+            error: null,
+            finishedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(projectExports.id, row.id),
+              eq(projectExports.pdfKey, row.pdfKey),
+              inArray(projectExports.status, ['pending', 'running']),
+            ),
+          )
+      } else if (status?.terminal && upload !== 'unknown') {
         await getDb()
           .update(projectExports)
           .set({
@@ -71,6 +88,7 @@ async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
           .where(
             and(
               eq(projectExports.id, row.id),
+              row.pdfKey ? eq(projectExports.pdfKey, row.pdfKey) : isNull(projectExports.pdfKey),
               inArray(projectExports.status, ['pending', 'running']),
             ),
           )
@@ -83,7 +101,8 @@ async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
         .from(projectExports)
         .where(eq(projectExports.id, row.id))
       const current = fresh ?? row
-      return !status && (current.status === 'pending' || current.status === 'running')
+      return (!status || upload === 'unknown' || upload === 'ready') &&
+        (current.status === 'pending' || current.status === 'running')
         ? { ...current, statusUnconfirmed: true }
         : current
     }),

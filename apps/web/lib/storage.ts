@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3'
@@ -32,6 +33,24 @@ export async function putObject(key: string, body: Buffer, contentType: string):
       ContentType: contentType,
     }),
   )
+}
+
+/** Проверка наличия файла без скачивания; отказ доступа не равен отсутствию. */
+export async function inspectObject(key: string) {
+  try {
+    return await getClient().send(new HeadObjectCommand({ Bucket: getEnv().S3_BUCKET, Key: key }), {
+      abortSignal: AbortSignal.timeout(4000),
+    })
+  } catch (error) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      '$metadata' in error &&
+      (error.$metadata as { httpStatusCode?: number } | undefined)?.httpStatusCode === 404
+    )
+      return null
+    throw error
+  }
 }
 
 /** Объект целиком: для отдачи через наш домен, когда браузеру нужен доступ к пикселям. */

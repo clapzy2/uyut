@@ -14,6 +14,11 @@ import {
 } from './repository'
 
 const queue = vi.hoisted(() => ({ retrieve: vi.fn(), list: vi.fn() }))
+const head = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/storage', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/storage')>()),
+  inspectObject: head,
+}))
 vi.mock('@trigger.dev/sdk', () => ({ runs: queue }))
 vi.mock('@/lib/env', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/env')>()
@@ -167,5 +172,76 @@ describe('project exports in a real database', () => {
     expect(result.status).toBe('ready')
     expect(result.pdfUrl).toContain('queue-unavailable.pdf')
     expect(result.statusUnconfirmed).not.toBe(true)
+  })
+
+  async function checkpoint() {
+    const created = await createExport(ownerId, freeProjectId, {})
+    const digest = 'a'.repeat(64)
+    const pdfKey = `projects/${freeProjectId}/exports/${created.id}-${digest}.pdf`
+    await getDb()
+      .update(projectExports)
+      .set({
+        status: 'running',
+        pdfKey,
+        pages: 7,
+        durationMs: null,
+      })
+      .where(eq(projectExports.id, created.id))
+    head.mockReset()
+    head.mockResolvedValue({
+      ContentType: 'application/pdf',
+      ContentLength: 100,
+      Metadata: { 'export-id': created.id, 'pdf-sha256': digest },
+    })
+    queue.retrieve.mockResolvedValue({ status: 'FAILED' })
+    return { ...created, pdfKey }
+  }
+
+  it.each([false, true])(
+    'recovers the same uploaded PDF; queue unavailable=%s',
+    async (unavailable) => {
+      const saved = await checkpoint()
+      if (unavailable) queue.retrieve.mockRejectedValueOnce(new Error('Network'))
+      const result = await getExport(ownerId, saved.id)
+      expect(result.status).toBe('ready')
+      expect(result.pdfUrl).toContain(saved.id)
+      expect(result.durationMs).toBeNull()
+      expect(result.error).toBeNull()
+      expect(result.finishedAt).toBeInstanceOf(Date)
+    },
+  )
+
+  it('keeps unknown storage reserved, but releases confirmed missing after terminal queue', async () => {
+    const saved = await checkpoint()
+    head.mockRejectedValueOnce(new Error('403'))
+    expect(await getExport(ownerId, saved.id)).toMatchObject({
+      status: 'running',
+      statusUnconfirmed: true,
+    })
+    head.mockResolvedValueOnce(null)
+    expect((await getExport(ownerId, saved.id)).status).toBe('failed')
+  })
+
+  it('does not probe storage while the task is executing', async () => {
+    const saved = await checkpoint()
+    queue.retrieve.mockResolvedValueOnce({ status: 'EXECUTING' })
+    expect((await getExport(ownerId, saved.id)).status).toBe('running')
+    expect(head).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm a checkpoint replaced during HEAD', async () => {
+    const saved = await checkpoint()
+    const object = await head()
+    head.mockImplementationOnce(async () => {
+      await getDb()
+        .update(projectExports)
+        .set({ pdfKey: saved.pdfKey.replace(/a{64}/, 'b'.repeat(64)) })
+        .where(eq(projectExports.id, saved.id))
+      return object
+    })
+    expect(await getExport(ownerId, saved.id)).toMatchObject({
+      status: 'running',
+      statusUnconfirmed: true,
+    })
   })
 })
