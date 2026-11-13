@@ -15,7 +15,12 @@ function contextHeaders(): Record<string, string> {
 }
 
 test.describe('profile', () => {
-  test.use({ extraHTTPHeaders: contextHeaders() })
+  test.use({
+    extraHTTPHeaders: contextHeaders(),
+    viewport: { width: 320, height: 740 },
+    isMobile: true,
+    hasTouch: true,
+  })
 
   test('renames the user and uploads an avatar to the bucket', async ({ page }) => {
     const email = `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.test`
@@ -30,10 +35,52 @@ test.describe('profile', () => {
 
     await page.goto('/profile')
     await page.getByLabel('Имя').fill('Анна Горская')
+    await page.route('**/profile', async (route) => {
+      const request = route.request()
+      if (request.method() === 'POST' && request.headers()['next-action']) {
+        await route.abort('connectionfailed')
+      } else {
+        await route.continue()
+      }
+    })
+    await page.getByRole('button', { name: 'Сохранить' }).tap()
+    await expect(
+      page.getByText(
+        'Не удалось получить ответ сервера. Проверьте соединение и попробуйте сохранить ещё раз.',
+        { exact: true },
+      ),
+    ).toBeVisible()
+    await expect(page.getByLabel('Имя')).toHaveValue('Анна Горская')
+    await expect(page.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+    await page.unroute('**/profile')
     await page.getByRole('button', { name: 'Сохранить' }).click()
     await expect(page.getByText('Сохранили')).toBeVisible()
     await page.reload()
     await expect(page.getByLabel('Имя')).toHaveValue('Анна Горская')
+
+    const sizes = await page.evaluate(() => ({
+      client: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+    }))
+    expect(sizes.scroll).toBeLessThanOrEqual(sizes.client + 1)
+
+    await page.route('**/profile', async (route) => {
+      const request = route.request()
+      if (request.method() === 'POST' && request.headers()['next-action']) {
+        await route.abort('connectionfailed')
+      } else {
+        await route.continue()
+      }
+    })
+    await page.locator('#avatar').setInputFiles({
+      name: 'avatar.png',
+      mimeType: 'image/png',
+      buffer: ONE_PIXEL_PNG,
+    })
+    await expect(page.getByText('Не удалось получить ответ сервера', { exact: true })).toBeVisible()
+    await expect(page.locator('button').filter({ hasText: /^Загрузить фото$/ })).toBeEnabled()
+    await expect(page.locator('#avatar')).toBeEnabled()
+    await page.unroute('**/profile')
 
     await page.locator('#avatar').setInputFiles({
       name: 'avatar.png',
@@ -41,6 +88,8 @@ test.describe('profile', () => {
       buffer: ONE_PIXEL_PNG,
     })
     await expect(page.getByText('Фото обновлено')).toBeVisible()
+    await expect(page.locator('img[src*="avatars/"]')).toBeVisible()
+    await page.reload()
     await expect(page.locator('img[src*="avatars/"]')).toBeVisible()
 
     const avatarUrl = await page.locator('img[src*="avatars/"]').getAttribute('src')

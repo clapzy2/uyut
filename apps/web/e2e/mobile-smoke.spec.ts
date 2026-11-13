@@ -1,5 +1,6 @@
 import { expect, type Page, test } from '@playwright/test'
 import sharp from 'sharp'
+import { extractLink, waitForEmail } from './helpers/mailpit'
 
 const PASSWORD = 'lampa-u-okna-2026'
 const ORIGIN = `http://localhost:${process.env.PORT ?? '3000'}`
@@ -61,6 +62,10 @@ test.describe('mobile critical path', () => {
     await expect(page).toHaveURL(/\/verify-email/)
     await expectFitsViewport(page)
 
+    const letter = await waitForEmail(email, { subjectIncludes: 'Подтвердите' })
+    await page.goto(extractLink(letter.text, '/api/auth/verify-email'))
+    await expect(page.getByText('Почта подтверждена')).toBeVisible()
+    await expectFitsViewport(page)
     await page.goto('/onboarding/step-1')
     await page.getByLabel('Название проекта').fill('Мобильная квартира')
     await expectFitsViewport(page)
@@ -105,6 +110,13 @@ test.describe('mobile critical path', () => {
     const projectUrl = page.url()
     await expectFitsViewport(page)
     await page.getByRole('link', { name: /Гостиная/ }).tap()
+    await page.locator('#photo').setInputFiles({
+      name: 'broken-photo.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from('not a real image'),
+    })
+    await expect(page.getByText('Файл не загрузился', { exact: true })).toBeVisible()
+    await expect(page.locator('#photo')).toBeEnabled()
     await page.locator('#photo').setInputFiles({
       name: 'mobile-room.png',
       mimeType: 'image/png',

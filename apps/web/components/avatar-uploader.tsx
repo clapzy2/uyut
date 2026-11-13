@@ -37,14 +37,23 @@ export function AvatarUploader({ currentUrl, name }: { currentUrl: string | null
     setPending(true)
     const formData = new FormData()
     formData.set('avatar', file)
-    const result = await uploadAvatar(formData)
-    setPending(false)
-    if (!result.ok) {
-      toast({ title: 'Фото не загрузилось', description: result.error, tone: 'danger' })
-      return
+    try {
+      const result = await uploadAvatar(formData)
+      if (!result.ok) {
+        toast({ title: 'Фото не загрузилось', description: result.error, tone: 'danger' })
+        return
+      }
+      toast({ title: 'Фото обновлено', tone: 'success' })
+      router.refresh()
+    } catch {
+      toast({
+        title: 'Не удалось получить ответ сервера',
+        description: 'Проверьте соединение и попробуйте загрузить фото ещё раз.',
+        tone: 'danger',
+      })
+    } finally {
+      setPending(false)
     }
-    toast({ title: 'Фото обновлено', tone: 'success' })
-    router.refresh()
   }
 
   return (
@@ -62,6 +71,7 @@ export function AvatarUploader({ currentUrl, name }: { currentUrl: string | null
           ref={inputRef}
           type="file"
           accept={AVATAR_ACCEPT}
+          disabled={pending}
           onChange={onChange}
           className="sr-only"
           id="avatar"
@@ -71,6 +81,7 @@ export function AvatarUploader({ currentUrl, name }: { currentUrl: string | null
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={pending}
+          aria-busy={pending || undefined}
           className="inline-flex items-center gap-2 py-2 text-[15px] text-ink underline decoration-accent decoration-1 underline-offset-4 transition-colors duration-200 ease-ui hover:text-accent disabled:opacity-60"
         >
           <Icon name="upload" className="size-4" />
