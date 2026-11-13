@@ -186,6 +186,62 @@ function addRoom(data: ProjectSnapshot): Room {
 }
 
 describe('данные нового задания для мастера', () => {
+  it.each(['brief_conflict', 'blocked_access', 'not_interior'] as const)(
+    'предупреждает о замечании %s, даже если сравнение фото завершено',
+    async (code) => {
+      const data = snapshot()
+      const room = addRoom(data)
+      const entry = data.concepts.get(room.id)
+      if (!entry) throw new Error('Нет тестового концепта')
+      entry.main.note = 'Светлая комната. '.repeat(40)
+      entry.main.qualityReview = {
+        version: 1,
+        status: 'review',
+        model: 'test',
+        checkedAt: '2026-11-11T00:00:00Z',
+        description: entry.main.note,
+        issues: [{ code, detail: 'Нужно сверить видимую деталь.', confidence: 0.9 }],
+        sourceComparison: 'verified',
+      }
+      const { pdf } = await build(data)
+      expect(pdf.rooms[0]?.note).toContain('Автосверка отметила замечания')
+      expect(renderProjectHtml(pdf, { fontCss: '' })).toContain('Автосверка отметила замечания')
+
+      entry.main.editedRenderUrl = 'https://cdn.example/edited.png'
+      const edited = await build(data)
+      expect(edited.pdf.rooms[0]?.note).toContain('Замечания относятся к исходному варианту')
+      expect(edited.pdf.rooms[0]?.note).toContain('новая автосверка не выполнялась')
+    },
+  )
+
+  it('сохраняет все ограничения проверки перед длинным описанием', async () => {
+    const data = snapshot()
+    const room = addRoom(data)
+    room.photoRevision = 1
+    const entry = data.concepts.get(room.id)
+    if (!entry) throw new Error('Нет тестового концепта')
+    entry.main.note = 'Светлая комната. '.repeat(40)
+    entry.main.qualityReview = {
+      version: 1,
+      status: 'review',
+      model: 'test',
+      checkedAt: '2026-11-11T00:00:00Z',
+      description: entry.main.note,
+      imageReview: 'limited',
+      sourceComparison: 'limited',
+      issues: [{ code: 'opening_conflict', detail: 'Изменён проём.', confidence: 0.9 }],
+    }
+    const { pdf } = await build(data)
+    const note = pdf.rooms[0]?.note
+    expect(note).toContain('текущий снимок не использовался.')
+    expect(note).toContain('Проверка изображения неполная')
+    expect(note).toContain('Сравнение с исходным фото неполное')
+    expect(note).toContain('Сверьте вариант с исходным фото.')
+    const html = renderProjectHtml(pdf, { fontCss: '' })
+    expect(html).toContain('Проверка изображения неполная')
+    expect(html).toContain('Сверьте вариант с исходным фото.')
+  })
+
   it.each(['limited', 'unavailable'] as const)(
     'сохраняет ограничение сравнения %s перед описанием концепта',
     async (sourceComparison) => {

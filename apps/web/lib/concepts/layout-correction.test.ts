@@ -1,4 +1,4 @@
-import { isLayoutCorrectionImprovement, layoutCorrectionPrompt } from '@uyut/ai'
+import { isLayoutCorrectionImprovement, layoutCorrectionPrompt, parseQualityReview } from '@uyut/ai'
 import type { ConceptQualityReview } from '@uyut/db'
 import { describe, expect, it } from 'vitest'
 
@@ -21,6 +21,36 @@ const missing = {
 }
 
 describe('точечная коррекция рендера по 2D-контракту', () => {
+  it('не принимает исчезновение замечаний из-за низкой уверенности за исправление', () => {
+    const after = parseQualityReview(
+      JSON.stringify({
+        description: 'Комната.',
+        issues: [{ code: 'blocked_access', detail: 'Возможно перекрыт вход.', confidence: 0.79 }],
+      }),
+    )
+    expect(after).toMatchObject({ status: 'checked', imageReview: 'limited', issues: [] })
+    expect(isLayoutCorrectionImprovement(review([missing]), after)).toBe(false)
+  })
+
+  it.each([
+    { imageReview: 'limited' as const },
+    { sourceComparison: 'limited' as const },
+    { sourceComparison: 'unavailable' as const },
+  ])('не тратит попытку и не принимает результат при неполной сверке %j', (scope) => {
+    const before = review([missing])
+    const after = review([])
+    expect(layoutCorrectionPrompt({ ...before, ...scope }, 'contract')).toBeNull()
+    expect(isLayoutCorrectionImprovement(before, { ...after, ...scope })).toBe(false)
+    expect(isLayoutCorrectionImprovement({ ...before, ...scope }, after)).toBe(false)
+  })
+
+  it('принимает полностью проверенное исправление единственного требования', () => {
+    const scope = { imageReview: 'complete' as const, sourceComparison: 'verified' as const }
+    const before = { ...review([missing]), ...scope }
+    expect(layoutCorrectionPrompt(before, 'contract')).not.toBeNull()
+    expect(isLayoutCorrectionImprovement(before, { ...review([]), ...scope })).toBe(true)
+  })
+
   it('исправляет только единственное неподтверждённое требование', () => {
     const prompt = layoutCorrectionPrompt(
       review([missing]),
@@ -68,5 +98,13 @@ describe('точечная коррекция рендера по 2D-контр�
       ),
     ).toBe(false)
     expect(isLayoutCorrectionImprovement(before, review([], 'unavailable'))).toBe(false)
+    expect(isLayoutCorrectionImprovement(before, review([], 'review'))).toBe(false)
+    expect(isLayoutCorrectionImprovement(review([missing], 'unavailable'), review([]))).toBe(false)
+    expect(
+      isLayoutCorrectionImprovement(
+        review([missing, { code: 'blocked_access', detail: 'Вход перекрыт.', confidence: 0.9 }]),
+        review([{ code: 'wrong_room', detail: 'Другая комната.', confidence: 0.95 }]),
+      ),
+    ).toBe(false)
   })
 })

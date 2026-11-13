@@ -15,6 +15,13 @@ export function QualityReview({
   planUnconfirmed?: boolean
 }) {
   const planNeedsComparison = planStatus === 'changed' || planStatus === 'unlinked'
+  const imageReviewIncomplete = review?.imageReview === 'limited'
+  const imageReviewNotice = imageReviewIncomplete ? (
+    <p className="mt-2 text-ink">
+      Проверка изображения неполная: часть предполагаемых замечаний не подтверждена. Сверьте видимые
+      детали вручную; эти предположения не считаются доказанными ошибками.
+    </p>
+  ) : null
   const sourceComparisonIncomplete =
     review?.sourceComparison === 'limited' || review?.sourceComparison === 'unavailable'
   const sourceComparisonNotice = sourceComparisonIncomplete ? (
@@ -57,10 +64,7 @@ export function QualityReview({
   const comparisonInstructions = canComparePlan
     ? 'Сравните окна, двери и контур в разделе «Сверить концепт с планом».'
     : 'Сверьте окна, двери и контур с исходным планом или фото комнаты.'
-  const issues =
-    planStatus === 'changed'
-      ? review.issues.filter((issue) => issue.code !== 'opening_conflict')
-      : review.issues
+  const issues = review.issues
   return (
     <div className="mt-4 border border-line bg-paper p-4 text-[14px] leading-relaxed text-ink-2">
       <p className="font-medium text-ink">
@@ -71,12 +75,13 @@ export function QualityReview({
       {planNeedsComparison ? (
         <p className="mt-2 text-ink">
           {planStatus === 'changed'
-            ? 'Сверьте концепт с актуальными данными плана.'
+            ? 'Сверьте концепт с актуальными данными плана. Ниже сохранены прежние замечания; их соответствие новому плану не проверено.'
             : 'Эта автосверка не привязана к текущему плану.'}{' '}
           {comparisonInstructions}
         </p>
       ) : null}
       {unconfirmedPlanNotice}
+      {imageReviewNotice}
       {sourceComparisonNotice}
       {issues.length > 0 ? (
         <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -93,9 +98,11 @@ export function QualityReview({
             ? planStatus === 'changed'
               ? 'Сохранённая автосверка не учитывает актуальные данные плана. Размеры и размещение проверяйте на 2D-схеме.'
               : 'Версия плана для этой автосверки не сохранена. Размеры и размещение проверяйте на текущей 2D-схеме.'
-            : sourceComparisonIncomplete
-              ? 'Проверки самого изображения выполнены. Размеры и размещение проверяйте на 2D-схеме.'
-              : 'Автосверка не нашла замечаний. Размеры и размещение проверяйте на 2D-схеме.'}
+            : imageReviewIncomplete
+              ? 'Уверенных замечаний по изображению нет, но проверка неполная. Размеры и размещение проверяйте на 2D-схеме.'
+              : sourceComparisonIncomplete
+                ? 'Проверки самого изображения выполнены. Размеры и размещение проверяйте на 2D-схеме.'
+                : 'Автосверка не нашла замечаний. Размеры и размещение проверяйте на 2D-схеме.'}
         </p>
       )}
       <details className="mt-2">

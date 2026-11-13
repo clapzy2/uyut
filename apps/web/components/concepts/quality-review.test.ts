@@ -160,7 +160,7 @@ describe('concept quality explanation', () => {
     expect(outsideDetails).toContain('Пожелание требует проверки. Рабочий стол не виден.')
   })
 
-  it('marks a changed plan and hides only superseded architecture comments', () => {
+  it('marks a changed plan without discarding previous opening findings', () => {
     const html = renderToStaticMarkup(
       createElement(QualityReview, {
         review: {
@@ -177,7 +177,8 @@ describe('concept quality explanation', () => {
     )
     expect(html).toContain('Сверьте концепт с актуальными данными плана')
     expect(html).toContain('Стол перекрывает видимую дверь.')
-    expect(html).not.toContain('Старое окно слева.')
+    expect(html).toContain('Старое окно слева.')
+    expect(html).toContain('их соответствие новому плану не проверено')
     expect(html).not.toContain('Автосверка не нашла замечаний')
   })
 

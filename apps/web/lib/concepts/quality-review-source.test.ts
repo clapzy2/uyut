@@ -293,6 +293,25 @@ describe('independent observation of a registered opening', async () => {
 })
 
 describe('independent source observation', () => {
+  it.each([false, true])(
+    'retains incomplete image assessment when source comparison fails=%s',
+    async (failed) => {
+      const fetchMock = mockReviews([], new Error('Unexpected observer'), {
+        baseIssues: [{ ...explicitBan, confidence: 0.79 }],
+        comparisonOutput: failed ? new Error('offline') : { description, issues: [] },
+      })
+      const review = await reviewConceptImage('test', resultImage, brief, source)
+      expect(review).toMatchObject({
+        status: 'checked',
+        imageReview: 'limited',
+        sourceComparison: failed ? 'unavailable' : 'verified',
+        issues: [],
+      })
+      expect(isUsableArchitectureAnchor(review, { layoutNotes: 'Окно слева.' })).toBe(false)
+      expect(submissions(fetchMock)).toHaveLength(2)
+    },
+  )
+
   const banQuote = 'В интерьере не должно быть телевизора.'
   const tvIssue = {
     ...explicitBan,
@@ -668,6 +687,125 @@ describe('independent source observation', () => {
     expect(review.status).toBe('review')
     expect(submissions(fetchMock)).toHaveLength(1)
   })
+
+  it.each(['other', null, 'unknown'])(
+    'does not confirm an opening with a contradictory surface: %s',
+    async (surface) => {
+      mockReviews(
+        [addedWindow, addedRadiator],
+        {
+          roomView: 'broad',
+          observations: [
+            { id: 0, ...emptyWallSite, surface },
+            { ...emptyUnderWindow, id: 1, surface: 'other' },
+          ],
+        },
+        { baseIssues: [explicitBan] },
+      )
+      const review = await reviewConceptImage('test', resultImage, brief, source)
+      expect(review).toMatchObject({ status: 'review', sourceComparison: 'limited' })
+      expect(review.issues).toEqual([
+        {
+          code: 'brief_conflict',
+          detail: `${explicitBan.detail} ${addedRadiator.detail}`,
+          confidence: 0.95,
+        },
+      ])
+    },
+  )
+
+  it('accepts a consistent wall classification for an opening without a registered box', async () => {
+    mockReviews([addedWindow], {
+      roomView: 'broad',
+      observations: [{ id: 0, ...emptyWallSite, surface: 'continuous_wall' }],
+    })
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review).toMatchObject({ status: 'review', sourceComparison: 'verified' })
+    expect(review.issues[0]?.code).toBe('opening_conflict')
+  })
+
+  it.each([addedWindow, removedRadiator])(
+    'keeps a low-confidence $code comparison incomplete without an observer request',
+    async (claim) => {
+      const fetchMock = mockReviews(
+        [{ ...claim, confidence: 0.79 }],
+        new Error('Unexpected observer'),
+      )
+      const review = await reviewConceptImage('test', resultImage, brief, source)
+      expect(review).toMatchObject({
+        status: 'checked',
+        sourceComparison: 'limited',
+        additionalReviewRequests: 1,
+        issues: [],
+      })
+      expect(isUsableArchitectureAnchor(review, { layoutNotes: 'Окно на дальней стене.' })).toBe(
+        false,
+      )
+      expect(submissions(fetchMock)).toHaveLength(2)
+    },
+  )
+
+  it('retains a confirmed change while a second low-confidence change stays incomplete', async () => {
+    const fetchMock = mockReviews([addedRadiator, { ...addedWindow, confidence: 0.79 }], {
+      roomView: 'broad',
+      observations: [emptyUnderWindow],
+    })
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review).toMatchObject({ sourceComparison: 'limited', status: 'review' })
+    expect(review.issues.map(({ detail }) => detail)).toEqual([addedRadiator.detail])
+    const observer = JSON.parse(String(submissions(fetchMock)[2]?.[1]?.body))
+    expect(JSON.parse(observer.prompt).map(({ id }: { id: number }) => id)).toEqual([0])
+    expect(submissions(fetchMock)).toHaveLength(3)
+  })
+
+  it('keeps the confirmed comparison after a full-length result finding of the same code', async () => {
+    const longBan = { ...explicitBan, detail: 'Исходное замечание. '.repeat(20).slice(0, 240) }
+    mockReviews(
+      [addedRadiator],
+      { roomView: 'broad', observations: [emptyUnderWindow] },
+      { baseIssues: [longBan] },
+    )
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review).toMatchObject({ status: 'review', sourceComparison: 'verified' })
+    expect(review.issues).toHaveLength(1)
+    expect(review.issues[0]?.detail).toBe(`${longBan.detail.trim()} ${addedRadiator.detail}`)
+  })
+
+  it('keeps a confirmed opening when five different result findings are already present', async () => {
+    const baseIssues = [
+      'not_interior',
+      'wrong_room',
+      'broken_geometry',
+      'blocked_access',
+      'requirement_unconfirmed',
+    ].map((code) => ({ code, detail: `Замечание ${code}`, confidence: 0.9 }))
+    mockReviews(
+      [addedWindow],
+      { roomView: 'broad', observations: [{ id: 0, ...emptyWallSite }] },
+      { baseIssues },
+    )
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review).toMatchObject({ status: 'review', sourceComparison: 'verified' })
+    expect(review.issues).toHaveLength(6)
+    expect(review.issues.map(({ code }) => code)).toEqual([
+      ...baseIssues.map(({ code }) => code),
+      'opening_conflict',
+    ])
+    expect(review.issues[5]?.detail).toBe(addedWindow.detail)
+  })
+
+  it.each(['bare', undefined] as const)(
+    'keeps allowed equipment additions exempt even with low confidence in mode %s',
+    async (condition) => {
+      const fetchMock = mockReviews(
+        [{ ...addedRadiator, confidence: 0.79 }],
+        new Error('Unexpected observer'),
+      )
+      const review = await reviewConceptImage('test', resultImage, { ...brief, condition }, source)
+      expect(review).toMatchObject({ sourceComparison: 'verified', issues: [] })
+      expect(submissions(fetchMock)).toHaveLength(2)
+    },
+  )
 
   it.each(['bare', undefined] as const)(
     'allows added equipment in mode %s without a source observer request',

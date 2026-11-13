@@ -42,6 +42,7 @@ export type ConceptItem = {
   partner: boolean | null
   orderIndex: number
   qualityStatus?: ConceptQualityReview['status'] | null
+  imageReview?: ConceptQualityReview['imageReview'] | null
   sourceComparison?: ConceptQualityReview['sourceComparison'] | null
   fromPreviousPhoto: boolean
 }
@@ -75,11 +76,15 @@ const GIVE_UP_AFTER_MS = 8 * 60_000
 // Как часто переспрашивать сервер, пока идёт ожидание
 const SERVER_CHECK_MS = 15_000
 
-function sourceComparisonCaption(item: ConceptItem): string | undefined {
-  if (item.sourceComparison === 'limited') return 'Сравнение с фото неполное — сверьте вручную'
+function reviewScopeCaption(item: ConceptItem): string | undefined {
+  const captions: string[] = []
+  if (item.imageReview === 'limited')
+    captions.push('Проверка изображения неполная - сверьте вручную')
+  if (item.sourceComparison === 'limited')
+    captions.push('Сравнение с фото неполное — сверьте вручную')
   if (item.sourceComparison === 'unavailable')
-    return 'Сравнение с фото недоступно — сверьте вручную'
-  return undefined
+    captions.push('Сравнение с фото недоступно — сверьте вручную')
+  return captions.length ? captions.join('. ') : undefined
 }
 
 function conceptCaption(item: ConceptItem): string | undefined {
@@ -89,7 +94,7 @@ function conceptCaption(item: ConceptItem): string | undefined {
       : item.qualityStatus === 'unavailable'
         ? 'Автопроверка недоступна — проверьте результат'
         : undefined
-  const comparisonCaption = sourceComparisonCaption(item)
+  const comparisonCaption = reviewScopeCaption(item)
   if (qualityCaption || comparisonCaption) {
     return [qualityCaption, comparisonCaption].filter(Boolean).join('. ')
   }
@@ -602,9 +607,9 @@ export function ConceptsPanel({
                           : 'Без автопроверки'}
                       </span>
                     ) : null}
-                    {sourceComparisonCaption(item) ? (
+                    {reviewScopeCaption(item) ? (
                       <span className="block bg-paper px-3 py-2 text-[12px] leading-relaxed text-ink-2">
-                        {sourceComparisonCaption(item)}
+                        {reviewScopeCaption(item)}
                       </span>
                     ) : null}
                     {item.fromPreviousPhoto ? (

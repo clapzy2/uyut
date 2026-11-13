@@ -79,29 +79,27 @@ export function sourceComparisonClaims(raw: string): {
     ) {
       throw new Error('Invalid source claim')
     }
-    if (typeof issue.confidence === 'number' && issue.confidence >= 0.8) {
-      claims.push({
-        id,
-        object: check.object,
-        location: check.location,
-        expected: check.expected,
-        ...(issue.code === 'opening_conflict' && {
-          boundaries: openingBoundaries(check.boundaries),
-          box:
-            Array.isArray(check.box) &&
-            check.box.length === 4 &&
-            check.box.every(
-              (coordinate: unknown) =>
-                typeof coordinate === 'number' &&
-                Number.isFinite(coordinate) &&
-                coordinate >= 0 &&
-                coordinate <= 1,
-            )
-              ? check.box
-              : undefined,
-        }),
-      })
-    }
+    claims.push({
+      id,
+      object: check.object,
+      location: check.location,
+      expected: check.expected,
+      ...(issue.code === 'opening_conflict' && {
+        boundaries: openingBoundaries(check.boundaries),
+        box:
+          Array.isArray(check.box) &&
+          check.box.length === 4 &&
+          check.box.every(
+            (coordinate: unknown) =>
+              typeof coordinate === 'number' &&
+              Number.isFinite(coordinate) &&
+              coordinate >= 0 &&
+              coordinate <= 1,
+          )
+            ? check.box
+            : undefined,
+      }),
+    })
   }
   return { value, issues, claims }
 }
@@ -184,6 +182,11 @@ ${hasRegisteredSites ? `${LOCALIZED_SITE_PROMPT}\n` : ''}Верни JSON {"roomV
       continue
     }
     if (claim.boundaries !== undefined) {
+      // Unregistered openings need no surface field, but an explicit conflicting
+      // classification cannot support a wall. Equipment has no wall requirement.
+      if (observation.surface !== undefined && observation.surface !== 'continuous_wall') {
+        continue
+      }
       const types = observation.boundaryTypes
       if (
         !Array.isArray(types) ||

@@ -32,6 +32,22 @@ const review: ConceptQualityReview = {
   issues: [{ code: 'blocked_access', detail: 'Возможное перекрытие входа.', confidence: 0.9 }],
 }
 
+const mergedReview: ConceptQualityReview = {
+  ...review,
+  issues: [
+    { code: 'not_interior', detail: 'Нужно сверить содержимое.', confidence: 0.9 },
+    { code: 'wrong_room', detail: 'Нужно сверить комнату.', confidence: 0.9 },
+    { code: 'broken_geometry', detail: 'Нужно сверить форму.', confidence: 0.9 },
+    { code: 'blocked_access', detail: 'Нужно сверить проход.', confidence: 0.9 },
+    {
+      code: 'brief_conflict',
+      detail: `${'Первое замечание. '.repeat(20)}Добавлен радиатор под окном.`,
+      confidence: 0.9,
+    },
+    { code: 'opening_conflict', detail: 'Добавлен дверной проём.', confidence: 0.9 },
+  ],
+}
+
 beforeAll(async () => {
   for (let i = 0; i < 2; i++) {
     const [user] = await getDb()
@@ -53,7 +69,24 @@ afterAll(async () => {
 })
 
 describe('отчёт качества в карточке концепта', () => {
-  it('доходит из БД до карточки и недоступен чужому пользователю', async () => {
+  it.each([
+    { label: 'обычный отчёт', value: review },
+    { label: 'объединённые замечания', value: mergedReview },
+    {
+      label: 'неполная проверка изображения при успешном сравнении фото',
+      value: {
+        ...review,
+        status: 'checked' as const,
+        issues: [],
+        imageReview: 'limited' as const,
+        sourceComparison: 'verified' as const,
+      },
+    },
+    {
+      label: 'неполное сравнение без подтверждённой ошибки',
+      value: { ...review, status: 'checked' as const, issues: [] },
+    },
+  ])('$label доходит из БД до карточки и недоступен чужому пользователю', async ({ value }) => {
     const [concept] = await getDb()
       .insert(concepts)
       .values({
@@ -63,12 +96,12 @@ describe('отчёт качества в карточке концепта', () 
         prompt: 'test',
         aiModel: 'test',
         status: 'ready',
-        qualityReview: review,
-        note: review.description,
+        qualityReview: value,
+        note: value.description,
       })
       .returning()
     if (!concept) throw new Error('No concept')
-    expect((await getConceptPage(owner, concept.id)).concept.qualityReview).toEqual(review)
+    expect((await getConceptPage(owner, concept.id)).concept.qualityReview).toEqual(value)
     await expect(getConceptPage(stranger, concept.id)).rejects.toBeInstanceOf(NotFoundError)
   })
 

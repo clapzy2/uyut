@@ -613,11 +613,14 @@ export async function buildPdfData(input: {
         entry && room.photoRevision > (entry.main.sourcePhotoRevision ?? 0)
           ? 'Интерьер создан до нынешнего фото комнаты; текущий снимок не использовался.'
           : null
-      const conceptNote = entry?.main.qualityReview?.issues.some(
-        (issue) => issue.code === 'opening_conflict',
-      )
-        ? 'Автопроверка отметила возможное расхождение окон и дверей. Сверьте вариант с исходным фото.'
-        : (entry?.main.note ?? null)
+      const reviewIssues = entry?.main.qualityReview?.issues ?? []
+      const conceptReviewNote = reviewIssues.length
+        ? entry?.main.editedRenderUrl
+          ? 'Замечания относятся к исходному варианту; после перекраски новая автосверка не выполнялась. Сверьте детали в проекте.'
+          : reviewIssues.some((issue) => issue.code === 'opening_conflict')
+            ? 'Автопроверка отметила возможное расхождение окон и дверей. Сверьте вариант с исходным фото.'
+            : 'Автосверка отметила замечания. Посмотрите детали в проекте и сверьте вариант вручную.'
+        : null
       const sourceComparison = entry?.main.editedRenderUrl
         ? null
         : entry?.main.qualityReview?.sourceComparison
@@ -627,6 +630,17 @@ export async function buildPdfData(input: {
           : sourceComparison === 'unavailable'
             ? 'Сравнение с исходным фото недоступно. Сверьте изменения вручную.'
             : null
+      const imageReviewNote =
+        !entry?.main.editedRenderUrl && entry?.main.qualityReview?.imageReview === 'limited'
+          ? 'Проверка изображения неполная: часть предполагаемых замечаний не подтверждена. Сверьте детали вручную.'
+          : null
+      // Keep bounded notices whole. Only the generated description may be shortened.
+      const reviewNotices = [photoNote, imageReviewNote, sourceComparisonNote, conceptReviewNote]
+        .filter(Boolean)
+        .join(' ')
+      const descriptionBudget = 330 - reviewNotices.length - 1
+      const conceptNote =
+        descriptionBudget > 0 ? clampText(entry?.main.note ?? null, descriptionBudget) : null
       return {
         id: room.id,
         name: room.name,
@@ -636,10 +650,7 @@ export async function buildPdfData(input: {
         render,
         before,
         alternates: alternates.filter((alt): alt is PdfImage & { caption: string } => alt !== null),
-        note: clampText(
-          [photoNote, sourceComparisonNote, conceptNote].filter(Boolean).join(' '),
-          330,
-        ),
+        note: [reviewNotices, conceptNote].filter(Boolean).join(' ') || null,
         objects: (entry ? (snapshot.objects.get(room.id) ?? []) : []).map((object) => ({
           index: object.index,
           category: detectedObjectLabel(object.label, categoryLabels[object.category]),
