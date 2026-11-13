@@ -1119,6 +1119,23 @@ describe('явно сохраняемый цвет предмета', () => {
     expect(review.issues[0]?.detail).toContain('Стало:')
     expect(review.issues[0]?.detail).toMatch(/Сверьте с исходником\.$/)
   })
+  it('отделяет сохранение числа частей от нового требования и требует точную цитату списка', async () => {
+    const fetchMock = mockReviews([], undefined)
+    const request =
+      'Перекрась фасады. Плиту, мойку с двумя чашами и столешницу оставить без изменений.'
+    await reviewConceptImage('test', resultImage, { ...brief, revision: request }, source)
+    const calls = submissions(fetchMock)
+    const resultOnly = JSON.parse(String(calls[0]?.[1]?.body))
+    const paired = JSON.parse(String(calls[1]?.[1]?.body))
+    expect(resultOnly.prompt).toContain(
+      'тоже относится к сравнению с исходником, а не к новому требованию количества',
+    )
+    expect(resultOnly.prompt).toContain('установи мойку с двумя чашами')
+    expect(paired.system_prompt).toContain('непрерывной дословной подстрокой')
+    expect(paired.system_prompt).toContain('не вставляй многоточие')
+    expect(paired.system_prompt).toContain('процитируй всё предложение целиком')
+    expect(paired.prompt).toContain(request)
+  })
   it('не предлагает считать скрытый покраской рисунок древесины изменением формы', async () => {
     const fetchMock = mockReviews([], undefined)
     const review = await reviewConceptImage(
@@ -1286,6 +1303,13 @@ describe('явно сохраняемый цвет предмета', () => {
       expect(body.prompt).not.toContain('ручки')
       expect(body.prompt).not.toContain('Шкаф не менять')
       expect(body.image_urls).toEqual([sourceDataUrl, resultDataUrl])
+      expect(body.system_prompt).toContain(
+        'независимо на каждом кадре проследи внутренние разделители',
+      )
+      expect(body.system_prompt).toContain(
+        'Если число частей на любом кадре неразличимо, верни not_visible',
+      )
+      expect(body.system_prompt).toContain('before всегда описывает изображение 1')
     },
   )
 

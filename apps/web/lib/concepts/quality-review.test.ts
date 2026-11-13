@@ -134,6 +134,7 @@ describe('проверка готового изображения', () => {
       JSON.stringify({ description, issues: [{ ...issue, confidence: 0.79 }] }),
     )
     expect(result).toMatchObject({ status: 'checked', imageReview: 'limited', issues: [] })
+    expect(result.imageReviewLimitations).toEqual([{ detail: issue.detail, confidence: 0.79 }])
     expect(isUsableArchitectureAnchor(result, { layoutNotes: 'Окно на дальней стене.' })).toBe(
       false,
     )
