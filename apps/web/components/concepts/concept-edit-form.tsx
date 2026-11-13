@@ -251,7 +251,9 @@ export function ConceptEditForm({
               ))}
             </ol>
           ) : (
-            <p className="text-[15px] leading-relaxed text-ink-2">Делать нечего.</p>
+            <p className="text-[15px] leading-relaxed text-ink-2">
+              Измените просьбу, чтобы подготовить шаги.
+            </p>
           )}
         </div>
         {plan.warningRu ? (

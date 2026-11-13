@@ -1113,8 +1113,10 @@ describe('явно сохраняемый цвет предмета', () => {
     confidence: 0.95,
     basis: 'reference',
     sourceCheck: {
-      object: 'подушки',
-      location: 'на кровати под окном',
+      object: 'подушки: левая передняя',
+      location: 'у левой стойки изголовья',
+      instanceScope: 'single',
+      instanceAnchor: 'левая квадратная подушка перед изголовьем',
       expected: 'changed',
       property: 'color',
       before: 'тёмно-синие',
@@ -1122,8 +1124,22 @@ describe('явно сохраняемый цвет предмета', () => {
       preservationQuote: 'Подушки оставить без изменений.',
     },
   }
-  it('показывает возможное нарушение без запроса проверки пустого места', async () => {
-    const fetchMock = mockReviews([changedPillows], undefined)
+  const colorObservation = {
+    observations: [
+      {
+        id: 0,
+        state: 'changed',
+        before: 'синий',
+        after: 'терракотовый',
+        confidence: 0.94,
+        instanceMatch: 'same',
+        matchedAnchor: 'левая стойка изголовья',
+        changeKind: 'distinct_property',
+      },
+    ],
+  }
+  it('показывает изменение конкретной подушки только после независимой проверки', async () => {
+    const fetchMock = mockReviews([changedPillows], colorObservation)
     const review = await reviewConceptImage(
       'test',
       resultImage,
@@ -1135,10 +1151,87 @@ describe('явно сохраняемый цвет предмета', () => {
     expect(review.issues).toEqual([
       expect.objectContaining({
         code: 'requirement_unconfirmed',
-        detail: expect.stringContaining('подушки'),
+        detail: expect.stringContaining('левая квадратная подушка'),
       }),
     ])
+    expect(submissions(fetchMock)).toHaveLength(3)
+  })
+  it.each([
+    ['бежевые с текстурным узором', 'серые с текстурным узором'],
+    ['серо-бежевые', 'светло-бежевые'],
+  ])('не повторяет групповое замечание сохранённой серии: %s -> %s', async (before, after) => {
+    const fetchMock = mockReviews(
+      [
+        {
+          ...changedPillows,
+          sourceCheck: {
+            ...changedPillows.sourceCheck,
+            object: 'подушки',
+            before,
+            after,
+            instanceScope: undefined,
+            instanceAnchor: undefined,
+          },
+        },
+      ],
+      undefined,
+    )
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(review.issues).toEqual([])
+    expect(review.sourceComparison).toBe('limited')
     expect(submissions(fetchMock)).toHaveLength(2)
+  })
+  it.each([
+    { instanceMatch: 'different' },
+    { instanceMatch: 'uncertain' },
+    { instanceMatch: undefined },
+    { matchedAnchor: '' },
+    { changeKind: 'lighting_or_shade' },
+    { changeKind: undefined },
+    { state: 'not_visible' },
+  ])('не утверждает перекраску без сопоставления экземпляра: %j', async (patch) => {
+    const fetchMock = mockReviews([changedPillows], {
+      observations: [{ ...colorObservation.observations[0], ...patch }],
+    })
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(review.issues).toEqual([])
+    expect(review.sourceComparison).toBe('limited')
+    expect(submissions(fetchMock)).toHaveLength(3)
+  })
+  it('принимает независимо проверенное отсутствие перекраски без передачи предполагаемых цветов', async () => {
+    const fetchMock = mockReviews([changedPillows], {
+      observations: [
+        {
+          ...colorObservation.observations[0],
+          state: 'unchanged',
+          before: 'серая с узором',
+          after: 'серая с узором',
+          changeKind: 'lighting_or_shade',
+        },
+      ],
+    })
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(review.issues).toEqual([])
+    expect(review.sourceComparison).toBe('verified')
+    const observer = JSON.parse(String(submissions(fetchMock)[2]?.[1]?.body))
+    expect(observer.prompt).not.toContain('тёмно-синие')
+    expect(observer.prompt).not.toContain('терракотовые')
+    expect(observer.image_urls).toEqual([sourceDataUrl, resultDataUrl])
   })
   it('не подтверждает старый запрет после разрешённой перекраски', async () => {
     const fetchMock = mockReviews([changedPillows], undefined)
@@ -1151,6 +1244,46 @@ describe('явно сохраняемый цвет предмета', () => {
     expect(review.issues).toEqual([])
     expect(review.sourceComparison).toBe('limited')
     expect(submissions(fetchMock)).toHaveLength(2)
+  })
+  it('не запускает четвёртый запрос ради цвета, если независимая проверка занята техникой', async () => {
+    const fetchMock = mockReviews([addedRadiator, changedPillows], {
+      roomView: 'broad',
+      observations: [emptyUnderWindow],
+    })
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(submissions(fetchMock)).toHaveLength(3)
+    expect(review.additionalReviewRequests).toBe(2)
+    expect(review.sourceComparison).toBe('limited')
+    expect(review.issues.some((issue) => issue.detail.includes('подушки'))).toBe(false)
+  })
+  it('проверяет реальную смену материала тем же сопоставлением экземпляра', async () => {
+    const fetchMock = mockReviews(
+      [
+        {
+          ...changedPillows,
+          sourceCheck: {
+            ...changedPillows.sourceCheck,
+            property: 'material',
+            before: 'ткань',
+            after: 'кожа',
+          },
+        },
+      ],
+      { observations: [{ ...colorObservation.observations[0], before: 'ткань', after: 'кожа' }] },
+    )
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(review.issues[0]?.detail).toContain('сохранение материала')
+    expect(submissions(fetchMock)).toHaveLength(3)
   })
   it.each(['', 'несуществующая цитата'])(
     'оставляет сравнение неполным без проверяемой цитаты %s',
@@ -1197,7 +1330,7 @@ describe('явно сохраняемый цвет предмета', () => {
           },
         },
       ],
-      undefined,
+      colorObservation,
     )
     const review = await reviewConceptImage(
       'test',
@@ -1255,7 +1388,7 @@ describe('явно сохраняемый цвет предмета', () => {
           sourceCheck: { object: 'окно', location: 'на стене', expected: 'empty' },
         },
       ],
-      undefined,
+      colorObservation,
     )
     const review = await reviewConceptImage(
       'test',
@@ -1265,7 +1398,7 @@ describe('явно сохраняемый цвет предмета', () => {
     )
     expect(review.issues.map((issue) => issue.code)).toEqual(['requirement_unconfirmed'])
     expect(review.sourceComparison).toBe('limited')
-    expect(submissions(fetchMock)).toHaveLength(2)
+    expect(submissions(fetchMock)).toHaveLength(3)
   })
   it.each([{ before: 'терракотовые' }, { property: 'position' }, { property: 'size' }])(
     'отклоняет неполное сравнение %j',
