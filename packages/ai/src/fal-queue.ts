@@ -59,6 +59,10 @@ export async function falQueue<T = Record<string, unknown>>(
     throw new FalError(`${endpoint}: отправка задания — отсутствуют корректные адреса очереди`)
   }
   const { status_url, response_url } = queued
+  // Номер нужен для сверки со счётом Fal, в том числе если ожидание позже оборвётся.
+  // Не записываем ключ, запрос, изображения или подписанные адреса очереди.
+  const requestId = typeof queued.request_id === 'string' ? queued.request_id : null
+  console.info('fal request accepted', { endpoint, requestId })
   while (Date.now() < deadline) {
     const statusResponse = await fetch(status_url, { headers, signal })
     const status = await readQueueJson(statusResponse, endpoint, 'проверка статуса очереди')
@@ -75,7 +79,15 @@ export async function falQueue<T = Record<string, unknown>>(
     }
     if (status.status === 'COMPLETED') {
       const response = await fetch(response_url, { headers, signal })
-      return (await readQueueJson(response, endpoint, 'получение результата')) as T
+      const result = await readQueueJson(response, endpoint, 'получение результата')
+      const usage = isRecord(result) && isRecord(result.usage) ? result.usage : null
+      const cost = usage?.cost
+      // Отсутствие usage.cost не означает бесплатный вызов. Сумма из ответа
+      // также не заменяет сверку с billing-events и не включает соседние задачи.
+      const providerReportedUsd =
+        typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : null
+      console.info('fal request completed', { endpoint, requestId, providerReportedUsd })
+      return result as T
     }
     if (TERMINAL_FAILURES.has(status.status)) {
       throw new FalError(`${endpoint}: ${status.status} ${JSON.stringify(status.detail ?? {})}`)

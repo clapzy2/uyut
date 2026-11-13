@@ -634,8 +634,8 @@ export const generateConcept = task({
     )
 
     publish({ stage: 'done', done, total: created.length, failed })
-    // fal не отдаёт фактически списанную сумму в ответе задачи. Это верхняя оценка по числу
-    // отправленных запросов: отклонённый до постановки в очередь запрос мог не списаться.
+    // Ориентир только для рендеров, не верхний предел и не фактическое списание.
+    // Не включает автосверку, планирование правки и последующий подбор товаров.
     const renderUsdEstimate = Number(
       (conceptModels[modelId].usdPerImage * renderRequests).toFixed(4),
     )
@@ -653,7 +653,11 @@ export const generateConcept = task({
       batchId: payload.batchId,
       done,
       failed,
+      // Сохраняем прежнее поле для совместимости; его смысл уточнён соседними полями.
       usd: renderUsdEstimate,
+      renderUsdEstimate,
+      costScope: 'render-estimate-only' as const,
+      actualTotalUsd: null,
       renderRequests,
       reviewRequests,
       layoutCorrectionRequests,

@@ -189,6 +189,7 @@ export type RoomNotesInput = z.input<typeof roomNotesSchema>
 export type RoomConditionInput = z.input<typeof roomConditionFormSchema>
 
 export const conceptEditSchema = z.object({
+  planToken: z.string().max(32_000).optional(),
   request: z
     .string()
     .trim()

@@ -8,6 +8,7 @@ import { recordAudit } from '@/lib/audit'
 import { bumpProjectVersion } from '@/lib/collaboration/live'
 import { APARTMENT_COUNT, apartmentPlan } from '@/lib/concepts/apartment'
 import { getDuoOffer } from '@/lib/concepts/duo'
+import { readEditPlan, signEditPlan } from '@/lib/concepts/edit-plan-token'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import {
   type ConceptRunProgress,
@@ -286,7 +287,7 @@ export async function requestApartmentConcepts(
 }
 
 /**
- * План правки словами, без единого потраченного цента.
+ * План правки словами: один платный разбор до подтверждения запуска.
  *
  * Рисующая модель не переносит предметы и не додумывает намерений, поэтому одну фразу человека
  * надо разложить на однозначные команды. Человек видит их до запуска и понимает, за что платит.
@@ -294,7 +295,7 @@ export async function requestApartmentConcepts(
 export async function planConceptEdit(
   conceptId: string,
   input: unknown,
-): Promise<ActionResult<EditPlan>> {
+): Promise<ActionResult<EditPlan & { planToken: string }>> {
   const userId = await currentUserId()
   if (!userId) {
     return { ok: false, error: SESSION_EXPIRED }
@@ -306,7 +307,12 @@ export async function planConceptEdit(
   try {
     await conceptsRepository.getConceptForEdit(userId, conceptId)
     const plan = await buildEditPlan(getEnv().FAL_KEY, parsed.data.request)
-    return { ok: true, data: plan }
+    const planToken = signEditPlan(
+      getEnv().BETTER_AUTH_SECRET,
+      { userId, conceptId, request: parsed.data.request },
+      plan,
+    )
+    return { ok: true, data: { ...plan, planToken } }
   } catch (error) {
     return failure(error)
   }
@@ -338,7 +344,20 @@ export async function reviseConcept(
       (await conceptsRepository.conceptHasObject(concept.id, parsed.data.objectId))
         ? parsed.data.objectId
         : ''
-    const plan = await buildEditPlan(getEnv().FAL_KEY, parsed.data.request)
+    const plan = parsed.data.planToken
+      ? readEditPlan(
+          getEnv().BETTER_AUTH_SECRET,
+          { userId, conceptId, request: parsed.data.request },
+          parsed.data.planToken,
+        )
+      : await buildEditPlan(getEnv().FAL_KEY, parsed.data.request)
+    if (!plan) {
+      return {
+        ok: false,
+        error:
+          'План правки устарел или текст изменился. Вернитесь к тексту и подготовьте план заново.',
+      }
+    }
     if (plan.steps.length === 0) {
       return { ok: false, error: plan.warningRu || 'Такую правку сделать не получится.' }
     }
