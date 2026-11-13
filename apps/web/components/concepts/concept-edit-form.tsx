@@ -4,7 +4,7 @@ import type { EditPlan } from '@uyut/ai'
 import { Button, Textarea, toast } from '@uyut/ui'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   checkGeneration,
   planConceptEdit,
@@ -124,6 +124,8 @@ export function ConceptEditForm({
   const [objectId, setObjectId] = useState('')
   const [error, setError] = useState<string | undefined>(undefined)
   const [sending, setSending] = useState(false)
+  // State обновляет экран позже; ref закрывает повторный клик уже в текущем событии.
+  const requestInFlight = useRef(false)
   const [run, setRun] = useState<{ runId: string; accessToken: string } | null>(null)
   const [needsStatusCheck, setNeedsStatusCheck] = useState(false)
   // Сохраняем согласованные шаги, чтобы запуск не оплачивал их повторный разбор.
@@ -145,7 +147,8 @@ export function ConceptEditForm({
 
   async function askForPlan(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (sending) return
+    if (requestInFlight.current || busyElsewhere) return
+    requestInFlight.current = true
     setError(undefined)
     setSending(true)
     try {
@@ -158,12 +161,14 @@ export function ConceptEditForm({
     } catch {
       setError('Не удалось подготовить правку. Текст сохранён — попробуйте ещё раз.')
     } finally {
+      requestInFlight.current = false
       setSending(false)
     }
   }
 
   async function confirm() {
-    if (sending || needsStatusCheck) return
+    if (requestInFlight.current || needsStatusCheck || busyElsewhere || !plan) return
+    requestInFlight.current = true
     setError(undefined)
     setSending(true)
     try {
@@ -183,6 +188,7 @@ export function ConceptEditForm({
       setNeedsStatusCheck(true)
       setError('Ответ о запуске правки потерялся. Проверьте статус в комнате перед новым запуском.')
     } finally {
+      requestInFlight.current = false
       setSending(false)
     }
   }
@@ -267,7 +273,7 @@ export function ConceptEditForm({
               {sending ? 'Запускаем…' : 'Запустить'}
             </Button>
           ) : null}
-          <Button type="button" variant="ghost" onClick={() => setPlan(null)}>
+          <Button type="button" variant="ghost" disabled={sending} onClick={() => setPlan(null)}>
             Изменить просьбу
           </Button>
         </div>
@@ -282,6 +288,8 @@ export function ConceptEditForm({
         label="Поправить этот вариант"
         placeholder="Шкаф справа переставить под окно, остальное не трогать"
         value={request}
+        disabled={sending}
+        maxLength={500}
         onChange={(event) => setRequest(event.currentTarget.value)}
       />
       {objects.length > 0 ? (
@@ -295,6 +303,7 @@ export function ConceptEditForm({
               <button
                 key={object.id}
                 type="button"
+                disabled={sending}
                 onClick={() => setObjectId(objectId === object.id ? '' : object.id)}
                 aria-pressed={objectId === object.id}
                 className={`inline-flex h-9 items-center rounded-full border px-4 text-sm transition-[color,background-color,border-color,transform] duration-200 ease-ui active:scale-[0.98] ${
@@ -311,7 +320,7 @@ export function ConceptEditForm({
       ) : null}
       <p className="text-[13px] leading-relaxed text-ink-2">
         Правим именно эту картинку, а не фотографию комнаты. Сначала покажем, что собираемся делать,
-        и только после вашего согласия потратим расчёт.
+        и только после вашего согласия запустим создание вариантов.
       </p>
       <FormError message={error} />
       <Button
