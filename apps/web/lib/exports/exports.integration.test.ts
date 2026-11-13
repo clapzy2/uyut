@@ -152,4 +152,20 @@ describe('project exports in a real database', () => {
     })
     expect((await getExport(ownerId, created.id)).status).toBe('ready')
   })
+
+  it('returns a saved PDF even when the concurrent queue lookup fails', async () => {
+    const created = await createExport(ownerId, freeProjectId, {})
+    await attachRun(created.id, 'run-queue-unavailable')
+    queue.retrieve.mockImplementationOnce(async () => {
+      await getDb()
+        .update(projectExports)
+        .set({ status: 'ready', pdfKey: 'queue-unavailable.pdf' })
+        .where(eq(projectExports.id, created.id))
+      throw new Error('Queue unavailable after PDF was saved')
+    })
+    const result = await getExport(ownerId, created.id)
+    expect(result.status).toBe('ready')
+    expect(result.pdfUrl).toContain('queue-unavailable.pdf')
+    expect(result.statusUnconfirmed).not.toBe(true)
+  })
 })

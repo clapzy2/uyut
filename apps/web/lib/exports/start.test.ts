@@ -121,6 +121,16 @@ describe('запуск PDF и граница внешней очереди', () 
     expect(mocks.trigger).not.toHaveBeenCalled()
   })
 
+  it('does not start another PDF when the active export finishes during reconciliation', async () => {
+    mocks.create
+      .mockResolvedValueOnce({ id: 'existing', kind: 'free', existing: true })
+      .mockResolvedValueOnce({ id: 'duplicate', kind: 'free', existing: false })
+    mocks.get.mockResolvedValue({ status: 'ready', pdfUrl: 'saved.pdf' })
+    await expect(startExport('owner', 'project', {})).rejects.toThrow('Статус сборки')
+    expect(mocks.create).toHaveBeenCalledOnce()
+    expect(mocks.trigger).not.toHaveBeenCalled()
+  })
+
   it('returns the accepted run when audit logging fails', async () => {
     mocks.audit.mockRejectedValue(new Error('Audit unavailable'))
     expect((await startExport('owner', 'project', {})).runId).toBe('run')

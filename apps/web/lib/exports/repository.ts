@@ -60,8 +60,7 @@ async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
     rows.map(async (row) => {
       if (row.status !== 'pending' && row.status !== 'running') return row
       const status = await exportQueueStatus(row.id, row.runId).catch(() => null)
-      if (!status) return { ...row, statusUnconfirmed: true }
-      if (status.terminal) {
+      if (status?.terminal) {
         await getDb()
           .update(projectExports)
           .set({
@@ -75,7 +74,7 @@ async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
               inArray(projectExports.status, ['pending', 'running']),
             ),
           )
-      } else if (!row.runId) {
+      } else if (status && !row.runId) {
         await attachRun(row.id, status.runId)
       }
       // The worker may have saved the PDF while the queue request was in flight.
@@ -83,7 +82,10 @@ async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
         .select()
         .from(projectExports)
         .where(eq(projectExports.id, row.id))
-      return fresh ?? row
+      const current = fresh ?? row
+      return !status && (current.status === 'pending' || current.status === 'running')
+        ? { ...current, statusUnconfirmed: true }
+        : current
     }),
   )
 }

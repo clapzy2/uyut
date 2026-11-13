@@ -597,4 +597,23 @@ describe('восстановление после отказа серверно�
     expect(hooks.state).toContain('Анна')
     expect(hooks.startPdf).not.toHaveBeenCalled()
   })
+
+  it('после завершения сборки во время повтора показывает готовый PDF без нового запуска', async () => {
+    hooks.startPdf.mockResolvedValueOnce({
+      ok: false,
+      checkStatus: true,
+      error: 'Статус сборки пока не подтверждён.',
+    })
+    await click(render(ExportCard, exportProps), 'Бесплатно собрать PDF с водяным знаком')
+    hooks.loadPdfs.mockResolvedValueOnce({
+      ok: true,
+      data: [{ ...pdf, status: 'ready', pdfUrl: '/saved.pdf' }],
+    })
+    await click(render(ExportCard, exportProps), 'Проверить статус PDF')
+    expect(
+      find(render(ExportCard, exportProps), (props) => props.href === '/saved.pdf'),
+    ).toBeTruthy()
+    expect(hooks.startPdf).toHaveBeenCalledOnce()
+    expect(hooks.toast).toHaveBeenCalledWith({ title: 'PDF готов', tone: 'success' })
+  })
 })
