@@ -70,6 +70,7 @@ export {
   buildEditPlan,
   type EditPlan,
   type EditStep,
+  editStepPrompt,
   KEEP_THE_REST,
   parseEditPlan,
 } from './edit-plan'
