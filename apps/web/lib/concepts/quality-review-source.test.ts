@@ -1013,3 +1013,146 @@ describe('independent source observation', () => {
     },
   )
 })
+
+describe('явно сохраняемый цвет предмета', () => {
+  const request = 'Покрывало сделать терракотовым. Подушки оставить без изменений.'
+  const changedPillows = {
+    code: 'brief_conflict',
+    detail: 'Подушки перекрашены.',
+    confidence: 0.95,
+    basis: 'reference',
+    sourceCheck: {
+      object: 'подушки',
+      location: 'на кровати под окном',
+      expected: 'changed',
+      property: 'color',
+      before: 'тёмно-синие',
+      after: 'терракотовые',
+      preservationQuote: 'Подушки оставить без изменений.',
+    },
+  }
+  it('показывает возможное нарушение без запроса проверки пустого места', async () => {
+    const fetchMock = mockReviews([changedPillows], undefined)
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(review.status).toBe('review')
+    expect(review.sourceComparison).toBe('limited')
+    expect(review.issues).toEqual([
+      expect.objectContaining({
+        code: 'requirement_unconfirmed',
+        detail: expect.stringContaining('подушки'),
+      }),
+    ])
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+  it('не подтверждает старый запрет после разрешённой перекраски', async () => {
+    const fetchMock = mockReviews([changedPillows], undefined)
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, notes: request, revision: 'Подушки тоже перекрасить.' },
+      source,
+    )
+    expect(review.issues).toEqual([])
+    expect(review.sourceComparison).toBe('limited')
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+  it.each(['', 'несуществующая цитата'])(
+    'оставляет сравнение неполным без проверяемой цитаты %s',
+    async (preservationQuote) => {
+      const fetchMock = mockReviews(
+        [{ ...changedPillows, sourceCheck: { ...changedPillows.sourceCheck, preservationQuote } }],
+        undefined,
+      )
+      const review = await reviewConceptImage(
+        'test',
+        resultImage,
+        { ...brief, revision: request },
+        source,
+      )
+      expect(review.issues).toEqual([])
+      expect(review.sourceComparison).toBe('limited')
+      expect(submissions(fetchMock)).toHaveLength(2)
+    },
+  )
+  it.each([0.5, 2, Number.NaN])(
+    'не подтверждает неподходящую уверенность %s',
+    async (confidence) => {
+      const fetchMock = mockReviews([{ ...changedPillows, confidence }], undefined)
+      const review = await reviewConceptImage(
+        'test',
+        resultImage,
+        { ...brief, revision: request },
+        source,
+      )
+      expect(review.issues).toEqual([])
+      expect(review.sourceComparison).not.toBe('verified')
+      expect(submissions(fetchMock)).toHaveLength(2)
+    },
+  )
+  it('ограничивает длину описания свойства обычным парсером', async () => {
+    mockReviews(
+      [
+        {
+          ...changedPillows,
+          sourceCheck: {
+            ...changedPillows.sourceCheck,
+            before: 'Синий '.repeat(60),
+            after: 'Красный '.repeat(60),
+          },
+        },
+      ],
+      undefined,
+    )
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(review.issues[0]?.detail.length).toBeLessThanOrEqual(240)
+  })
+  it('предупреждение о подушках не подтверждает проём без исходных границ', async () => {
+    const fetchMock = mockReviews(
+      [
+        changedPillows,
+        {
+          ...addedWindow,
+          sourceCheck: { object: 'окно', location: 'на стене', expected: 'empty' },
+        },
+      ],
+      undefined,
+    )
+    const review = await reviewConceptImage(
+      'test',
+      resultImage,
+      { ...brief, revision: request },
+      source,
+    )
+    expect(review.issues.map((issue) => issue.code)).toEqual(['requirement_unconfirmed'])
+    expect(review.sourceComparison).toBe('limited')
+    expect(submissions(fetchMock)).toHaveLength(2)
+  })
+  it.each([{ before: 'терракотовые' }, { property: 'position' }])(
+    'отклоняет неполное сравнение %j',
+    async (patch) => {
+      const fetchMock = mockReviews(
+        [{ ...changedPillows, sourceCheck: { ...changedPillows.sourceCheck, ...patch } }],
+        undefined,
+      )
+      const review = await reviewConceptImage(
+        'test',
+        resultImage,
+        { ...brief, revision: request },
+        source,
+      )
+      expect(review.sourceComparison).toBe('unavailable')
+      expect(review.issues).toEqual([])
+      expect(submissions(fetchMock)).toHaveLength(2)
+    },
+  )
+})

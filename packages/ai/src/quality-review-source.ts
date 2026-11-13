@@ -5,7 +5,11 @@ type SourceClaim = {
   id: number
   object: string
   location: string
-  expected: 'present' | 'empty'
+  expected: 'present' | 'empty' | 'changed'
+  property?: 'color' | 'material'
+  before?: string
+  after?: string
+  preservationQuote?: string
   // Present only for openings. An empty list means the proposed site cannot be matched.
   boundaries?: string[]
   box?: number[]
@@ -75,15 +79,36 @@ export function sourceComparisonClaims(raw: string): {
       typeof check.location !== 'string' ||
       !check.location.trim() ||
       check.location.length > 240 ||
-      (check.expected !== 'present' && check.expected !== 'empty')
+      (check.expected !== 'present' && check.expected !== 'empty' && check.expected !== 'changed')
     ) {
       throw new Error('Invalid source claim')
+    }
+    if (check.expected === 'changed') {
+      if (
+        issue.code !== 'brief_conflict' ||
+        (check.property !== 'color' && check.property !== 'material') ||
+        ![check.before, check.after].every(
+          (text) => typeof text === 'string' && text.trim().length > 0 && text.length <= 500,
+        ) ||
+        String(check.before).trim().toLowerCase() === String(check.after).trim().toLowerCase()
+      ) {
+        throw new Error('Invalid property comparison')
+      }
     }
     claims.push({
       id,
       object: check.object,
       location: check.location,
       expected: check.expected,
+      ...(check.expected === 'changed' && {
+        property: check.property as 'color' | 'material',
+        before: String(check.before).trim(),
+        after: String(check.after).trim(),
+        preservationQuote:
+          typeof check.preservationQuote === 'string' && check.preservationQuote.length <= 500
+            ? check.preservationQuote.trim()
+            : '',
+      }),
       ...(issue.code === 'opening_conflict' && {
         boundaries: openingBoundaries(check.boundaries),
         box:

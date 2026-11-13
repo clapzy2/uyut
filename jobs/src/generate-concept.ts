@@ -8,10 +8,10 @@ import {
   conceptPlanReviewSource,
   createFalRenderer,
   createPromptBuilder,
+  editStepPrompt,
   isConceptModelId,
   isLayoutCorrectionImprovement,
   isUsableArchitectureAnchor,
-  KEEP_THE_REST,
   layoutCorrectionPrompt,
   nearestStyles,
   type RenderResult,
@@ -148,6 +148,7 @@ async function renderSteps(
   imageUrl: string | undefined,
   referenceUrls: string[],
   aspectRatio: string,
+  editRequest?: string,
 ): Promise<RenderResult> {
   let current = imageUrl
   let last: RenderResult | null = null
@@ -156,7 +157,7 @@ async function renderSteps(
     // вторая картинка со шкафом — прямое противоречие команде, и модель рисовала его заново
     const withObject = referenceUrls.length > 0 && step.needsObject === true
     last = await engine.render({
-      prompt: `${step.prompt} ${KEEP_THE_REST}`,
+      prompt: editStepPrompt(step.prompt, editRequest),
       imageUrl: current,
       ...(withObject ? { referenceUrls } : {}),
       aspectRatio,
@@ -514,7 +515,14 @@ export const generateConcept = task({
             if (!anchoredResult) throw new Error('нет результата варианта')
             result = await anchoredResult
           } else if (payload.editSteps) {
-            result = await renderSteps(engine, payload.editSteps, imageUrl, objectUrls, aspectRatio)
+            result = await renderSteps(
+              engine,
+              payload.editSteps,
+              imageUrl,
+              objectUrls,
+              aspectRatio,
+              payload.editRequest,
+            )
           } else {
             result = await engine.render({
               prompt: concept.prompt,
