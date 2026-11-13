@@ -1106,6 +1106,53 @@ describe('independent source observation', () => {
 })
 
 describe('явно сохраняемый цвет предмета', () => {
+  it.each([undefined, 'adjacent_objects', 'uncertain'])(
+    'не принимает соседнее покрывало за изменение конструкции пледа: %s',
+    async (appearanceScope) => {
+      const request = 'Отдельный тёмный плед у ног и каждую подушку оставь прежними.'
+      mockReviews(
+        [
+          {
+            code: 'brief_conflict',
+            basis: 'reference',
+            confidence: 0.95,
+            detail: 'Плед расположен иначе.',
+            sourceCheck: {
+              object: 'тёмный плед',
+              location: 'в нижней трети кровати между тумбами',
+              expected: 'changed',
+              property: 'appearance',
+              appearanceKind: 'structure',
+              before: 'плед поперёк кровати',
+              after: 'плед вдоль кровати',
+              preservationQuote: request,
+            },
+          },
+        ],
+        {
+          observations: [
+            {
+              id: 0,
+              state: 'changed',
+              confidence: 0.95,
+              appearanceKind: 'structure',
+              appearanceScope,
+              before: 'Тёмный плед поперёк нижней трети кровати',
+              after: 'Комбинация из двух пледов: нижний терракотовый и тёмный поверх него',
+            },
+          ],
+        },
+      )
+      const review = await reviewConceptImage(
+        'test',
+        resultImage,
+        { ...brief, revision: request },
+        source,
+      )
+      expect(review.issues).toEqual([])
+      expect(review.sourceComparison).toBe('limited')
+    },
+  )
   const request = 'Покрывало сделать терракотовым. Подушки оставить без изменений.'
   const changedPillows = {
     code: 'brief_conflict',
@@ -1501,6 +1548,7 @@ describe('явно сохраняемый цвет предмета', () => {
               id: 0,
               state: 'changed',
               appearanceKind: observerKind,
+              appearanceScope: 'target_only',
               before: 'две чаши',
               after: 'одна чаша',
               confidence: 0.95,
@@ -1529,6 +1577,7 @@ describe('явно сохраняемый цвет предмета', () => {
         expected: 'changed',
         property: 'appearance',
         appearanceKind: 'structure',
+        appearanceScope: 'target_only',
         before: 'корпус с двумя ящиками',
         after: 'табурет без ящиков',
         preservationQuote: 'Тумбу не менять.',
@@ -1539,6 +1588,7 @@ describe('явно сохраняемый цвет предмета', () => {
         {
           id: 0,
           appearanceKind: 'structure',
+          appearanceScope: 'target_only',
           state: 'changed',
           before: 'два ящика',
           after: 'табурет',
@@ -1571,6 +1621,7 @@ describe('явно сохраняемый цвет предмета', () => {
             ...changedPillows.sourceCheck,
             property: 'appearance',
             appearanceKind: 'structure',
+            appearanceScope: 'target_only',
             object: 'тумба',
             before: 'ящики',
             after: 'табурет',
@@ -1602,6 +1653,7 @@ describe('явно сохраняемый цвет предмета', () => {
               ...changedPillows.sourceCheck,
               property: 'appearance',
               appearanceKind: 'structure',
+              appearanceScope: 'target_only',
               object: 'шкаф',
               before: 'вертикальные ручки',
               after: 'горизонтальные ручки',
@@ -1615,6 +1667,7 @@ describe('явно сохраняемый цвет предмета', () => {
               id: 0,
               state,
               appearanceKind: 'structure',
+              appearanceScope: 'target_only',
               before: 'две двери',
               after: state === 'changed' ? 'открытые полки' : 'две двери',
               confidence: 0.95,
@@ -1659,6 +1712,7 @@ describe('явно сохраняемый цвет предмета', () => {
             ...changedPillows.sourceCheck,
             property: 'appearance',
             appearanceKind: 'structure',
+            appearanceScope: 'target_only',
             object: 'тумба',
             before: 'два ящика',
             after: 'открытая полка',
@@ -1675,6 +1729,7 @@ describe('явно сохраняемый цвет предмета', () => {
           {
             id: 0,
             appearanceKind: 'structure',
+            appearanceScope: 'target_only',
             state: 'changed',
             before: 'два ящика',
             after: 'полка',

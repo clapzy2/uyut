@@ -157,7 +157,7 @@ export async function buildEditPlan(
 
 /** Планировщик читает текст, а не фото: неоднозначный слой уточняем до оплаты. */
 function textileTargetWarning(request: string): string | undefined {
-  const clauses = request.split(/[.!?;\n]|,(?!\s*не\s+плед)/iu)
+  const clauses = request.split(/[.!?;\n]|,(?!\s*(?:не\s+плед|покрывающ))/iu)
   const ambiguous = clauses.some((clause) => {
     if (!/покрывал/iu.test(clause)) return false
     if (!/(?:перекрас|измени\S*\s+(?:только\s+)?цвет|смени\S*\s+цвет|сдела)/iu.test(clause))
@@ -168,7 +168,7 @@ function textileTargetWarning(request: string): string | undefined {
       )
     )
       return false
-    return !/(?:основн\S*\s+покрывал|больш\S*\s+покрывал|покрывал[^.!?]*(?:всю кровать|всю постель|у ног|в ногах|поверх|нижн\S* слой|верхн\S* слой)|покрывал[^.!?]*не\s+плед)/iu.test(
+    return !/(?:(?:основн|больш)[а-яё]*\s+(?:[а-яё-]+\s+){0,2}покрывал|покрывал[^.!?]*(?:всю кровать|всю постель|у ног|в ногах|поверх|нижн\S* слой|верхн\S* слой)|покрывал[^.!?]*не\s+плед)/iu.test(
       clause,
     )
   })
