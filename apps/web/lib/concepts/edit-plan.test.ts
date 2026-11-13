@@ -30,6 +30,13 @@ describe('parseEditPlan', () => {
 })
 
 describe('ограничения отдельного шага правки', () => {
+  it('не расширяет перекраску дверец на рамку и корпус', () => {
+    const request = 'Перекрась только дверцы верхнего шкафа в зелёный. Остальное сохранить.'
+    const prompt = editStepPrompt('Repaint only the upper cabinet doors green', request)
+    expect(prompt).toContain(JSON.stringify(request))
+    expect(prompt).toContain('preserve the cabinet frame, side panels, top, handles and hinges')
+    expect(prompt).toContain('unless this step explicitly includes them')
+  })
   it('не теряет запрет клиента, даже когда планировщик вернул только действие', () => {
     const request = 'Перекрась покрывало в терракотовый. Подушки и их синий цвет не меняй.'
     const prompt = editStepPrompt('Change the bedspread to terracotta', request)

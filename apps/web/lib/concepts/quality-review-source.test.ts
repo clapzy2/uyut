@@ -62,6 +62,7 @@ const explicitBan = {
   detail: 'Виден остров вопреки просьбе без острова.',
   confidence: 0.95,
   basis: 'result',
+  requirementQuote: 'Позднее уточнение клиента.',
 }
 
 function mockReviews(
@@ -316,6 +317,7 @@ describe('independent source observation', () => {
   const tvIssue = {
     ...explicitBan,
     detail: 'В комнате видны два телевизора.',
+    requirementQuote: banQuote,
     exclusionQuote: banQuote,
   }
 
@@ -771,6 +773,73 @@ describe('independent source observation', () => {
     expect(review.issues[0]?.detail).toBe(`${longBan.detail.trim()} ${addedRadiator.detail}`)
   })
 
+  it.each(['reference', 'result', undefined, 'invented'])(
+    'разделяет основание одиночного замечания %s',
+    async (basis) => {
+      mockReviews([], undefined, {
+        baseIssues: [
+          {
+            code: 'requirement_unconfirmed',
+            detail: 'Число чаш требует проверки.',
+            confidence: 0.95,
+            basis,
+            requirementQuote: 'Позднее уточнение клиента.',
+          },
+        ],
+      })
+      const review = await reviewConceptImage('test', resultImage, brief, source)
+      expect(review.issues.length).toBe(basis === 'result' ? 1 : 0)
+      expect(review.imageReview).toBe(basis === 'result' ? 'complete' : 'limited')
+    },
+  )
+  it('делегированное сохранение не скрывает недоступность парного сравнения', async () => {
+    mockReviews([], undefined, {
+      baseIssues: [
+        {
+          code: 'requirement_unconfirmed',
+          detail: 'Сохранение мойки.',
+          confidence: 0.95,
+          basis: 'reference',
+        },
+      ],
+      comparisonOutput: 'invalid',
+    })
+    const review = await reviewConceptImage('test', resultImage, brief, source)
+    expect(review.issues).toEqual([])
+    expect(review.sourceComparison).toBe('unavailable')
+  })
+
+  it.each([
+    ['Не оставляй остров.', 'Не оставляй остров.', 'complete', 1],
+    ['Оставь только одну чашу.', 'Оставь только одну чашу.', 'complete', 1],
+    ['Перекрась дверцы, рамку сохрани.', 'Перекрась дверцы, рамку сохрани.', 'limited', 0],
+    [undefined, 'Сохранить мойку с двумя чашами.', 'limited', 0],
+    ['Сохранить мойку с двумя чашами.', 'Сохранить мойку с двумя чашами.', 'complete', 0],
+    ['мойку с двумя чашами', 'Сохранить мойку с двумя чашами.', 'limited', 0],
+    ['Установи мойку с двумя чашами.', 'Установи мойку с двумя чашами.', 'complete', 1],
+  ])(
+    'связывает уверенное замечание с полным требованием %s',
+    async (requirementQuote, revision, completeness, count) => {
+      mockReviews([], undefined, {
+        baseIssues: [
+          {
+            code: 'requirement_unconfirmed',
+            detail: 'У мойки исчезла чаша.',
+            confidence: 0.85,
+            basis: 'result',
+            requirementQuote,
+          },
+        ],
+      })
+      const review = await reviewConceptImage('test', resultImage, { ...brief, revision }, source)
+      expect(review.issues).toHaveLength(count)
+      expect(review.imageReview).toBe(completeness)
+      if (completeness === 'limited') {
+        expect(JSON.stringify(review.imageReviewLimitations)).not.toContain('исчезла чаша')
+      }
+    },
+  )
+
   it('keeps a confirmed opening when five different result findings are already present', async () => {
     const baseIssues = [
       'not_interior',
@@ -778,7 +847,13 @@ describe('independent source observation', () => {
       'broken_geometry',
       'blocked_access',
       'requirement_unconfirmed',
-    ].map((code) => ({ code, detail: `Замечание ${code}`, confidence: 0.9 }))
+    ].map((code) => ({
+      code,
+      detail: `Замечание ${code}`,
+      confidence: 0.9,
+      basis: 'result',
+      requirementQuote: 'Позднее уточнение клиента.',
+    }))
     mockReviews(
       [addedWindow],
       { roomView: 'broad', observations: [{ id: 0, ...emptyWallSite }] },
@@ -1194,6 +1269,108 @@ describe('явно сохраняемый цвет предмета', () => {
       expect(submissions(fetchMock)).toHaveLength(2)
     },
   )
+  it.each([
+    [2, 1, 'changed', true],
+    [1, 2, 'changed', false],
+    [undefined, undefined, 'changed', false],
+    [2.5, 1, 'changed', false],
+    [2, 2, 'unchanged', false],
+  ])(
+    'сверяет направление подсчёта частей %s -> %s (%s)',
+    async (beforeCount, afterCount, state, warning) => {
+      const claim = {
+        ...changedPillows,
+        sourceCheck: {
+          object: 'мойка',
+          location: 'под окном',
+          expected: 'changed',
+          property: 'appearance',
+          appearanceKind: 'part_count',
+          before: 'две чаши',
+          after: 'одна чаша',
+          beforeCount: 2,
+          afterCount: 1,
+          preservationQuote: 'Мойку сохранить.',
+        },
+      }
+      const fetchMock = mockReviews([claim], {
+        observations: [
+          {
+            id: 0,
+            appearanceKind: 'part_count',
+            state,
+            before: 'исходная конструкция',
+            after: 'конструкция результата',
+            confidence: 0.95,
+            beforeCount,
+            afterCount,
+          },
+        ],
+      })
+      const review = await reviewConceptImage(
+        'test',
+        resultImage,
+        { ...brief, revision: 'Мойку сохранить.' },
+        source,
+      )
+      expect(review.issues.length).toBe(warning ? 1 : 0)
+      expect(review.sourceComparison).toBe(state === 'unchanged' ? 'verified' : 'limited')
+      const observer = JSON.parse(String(submissions(fetchMock)[2]?.[1]?.body))
+      expect(observer.prompt).not.toContain('beforeCount')
+      expect(observer.prompt).not.toContain('две чаши')
+    },
+  )
+
+  it.each([
+    [undefined, undefined],
+    ['structure', undefined],
+    [undefined, 'structure'],
+    ['part_count', 'structure'],
+    ['part_count', 'part_count'],
+  ])(
+    'не подтверждает конструкцию без согласованного типа и чисел (%s/%s)',
+    async (claimKind, observerKind) => {
+      const fetchMock = mockReviews(
+        [
+          {
+            ...changedPillows,
+            sourceCheck: {
+              object: 'мойка',
+              location: 'под окном',
+              expected: 'changed',
+              property: 'appearance',
+              appearanceKind: claimKind,
+              before: 'две чаши',
+              after: 'одна чаша',
+              preservationQuote: 'Мойку сохранить.',
+            },
+          },
+        ],
+        {
+          observations: [
+            {
+              id: 0,
+              state: 'changed',
+              appearanceKind: observerKind,
+              before: 'две чаши',
+              after: 'одна чаша',
+              confidence: 0.95,
+            },
+          ],
+        },
+      )
+      const review = await reviewConceptImage(
+        'test',
+        resultImage,
+        { ...brief, revision: 'Мойку сохранить.' },
+        source,
+      )
+      expect(review.issues).toEqual([])
+      expect(review.sourceComparison).toBe('limited')
+      expect(submissions(fetchMock)).toHaveLength(3)
+    },
+  )
+
   it('замечает замену сохраняемой тумбы табуретом на том же месте без проверки пустоты', async () => {
     const replacement = {
       ...changedPillows,
@@ -1202,6 +1379,7 @@ describe('явно сохраняемый цвет предмета', () => {
         location: 'между кроватью и окном',
         expected: 'changed',
         property: 'appearance',
+        appearanceKind: 'structure',
         before: 'корпус с двумя ящиками',
         after: 'табурет без ящиков',
         preservationQuote: 'Тумбу не менять.',
@@ -1209,7 +1387,14 @@ describe('явно сохраняемый цвет предмета', () => {
     }
     const fetchMock = mockReviews([replacement], {
       observations: [
-        { id: 0, state: 'changed', before: 'два ящика', after: 'табурет', confidence: 0.95 },
+        {
+          id: 0,
+          appearanceKind: 'structure',
+          state: 'changed',
+          before: 'два ящика',
+          after: 'табурет',
+          confidence: 0.95,
+        },
       ],
     })
     const review = await reviewConceptImage(
@@ -1236,6 +1421,7 @@ describe('явно сохраняемый цвет предмета', () => {
           sourceCheck: {
             ...changedPillows.sourceCheck,
             property: 'appearance',
+            appearanceKind: 'structure',
             object: 'тумба',
             before: 'ящики',
             after: 'табурет',
@@ -1266,6 +1452,7 @@ describe('явно сохраняемый цвет предмета', () => {
             sourceCheck: {
               ...changedPillows.sourceCheck,
               property: 'appearance',
+              appearanceKind: 'structure',
               object: 'шкаф',
               before: 'вертикальные ручки',
               after: 'горизонтальные ручки',
@@ -1278,6 +1465,7 @@ describe('явно сохраняемый цвет предмета', () => {
             {
               id: 0,
               state,
+              appearanceKind: 'structure',
               before: 'две двери',
               after: state === 'changed' ? 'открытые полки' : 'две двери',
               confidence: 0.95,
@@ -1321,6 +1509,7 @@ describe('явно сохраняемый цвет предмета', () => {
           sourceCheck: {
             ...changedPillows.sourceCheck,
             property: 'appearance',
+            appearanceKind: 'structure',
             object: 'тумба',
             before: 'два ящика',
             after: 'открытая полка',
@@ -1334,7 +1523,14 @@ describe('явно сохраняемый цвет предмета', () => {
       ],
       {
         observations: [
-          { id: 0, state: 'changed', before: 'два ящика', after: 'полка', confidence: 0.95 },
+          {
+            id: 0,
+            appearanceKind: 'structure',
+            state: 'changed',
+            before: 'два ящика',
+            after: 'полка',
+            confidence: 0.95,
+          },
         ],
       },
     )
