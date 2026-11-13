@@ -1,10 +1,26 @@
 import { randomUUID } from 'node:crypto'
 import { projectExports, projects, users } from '@uyut/db'
 import { eq } from 'drizzle-orm'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
-import { attachRun, createExport, getExport, listExports, saveContact } from './repository'
+import {
+  attachRun,
+  claimExport,
+  createExport,
+  getExport,
+  listExports,
+  saveContact,
+} from './repository'
+
+const queue = vi.hoisted(() => ({ retrieve: vi.fn(), list: vi.fn() }))
+vi.mock('@trigger.dev/sdk', () => ({ runs: queue }))
+vi.mock('@/lib/env', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/env')>()
+  return { ...original, getEnv: () => ({ ...original.getEnv(), TRIGGER_SECRET_KEY: 'test-only' }) }
+})
+queue.retrieve.mockResolvedValue({ status: 'EXECUTING' })
+queue.list.mockResolvedValue({ data: [{ id: 'run-test' }] })
 
 // Настоящая база: владелец, чужой пользователь, неоплаченный и оплаченный проекты
 const run = randomUUID().slice(0, 8)
@@ -96,5 +112,44 @@ describe('project exports in a real database', () => {
     if (existing) {
       await expect(getExport(strangerId, existing.id)).rejects.toBeInstanceOf(NotFoundError)
     }
+  })
+  it('serializes concurrent claims for a project', async () => {
+    await getDb().delete(projectExports).where(eq(projectExports.projectId, paidProjectId))
+    const claims = await Promise.all(
+      Array.from({ length: 8 }, () => claimExport(ownerId, paidProjectId, {})),
+    )
+    expect(new Set(claims.map((claim) => claim.id)).size).toBe(1)
+    expect(claims.filter((claim) => !claim.existing)).toHaveLength(1)
+  })
+  it('keeps an old queued export active and reconciles only terminal status', async () => {
+    const created = await createExport(ownerId, freeProjectId, {})
+    await attachRun(created.id, 'run-old')
+    await getDb()
+      .update(projectExports)
+      .set({ createdAt: new Date(0), status: 'running' })
+      .where(eq(projectExports.id, created.id))
+    queue.retrieve.mockResolvedValue({ status: 'QUEUED' })
+    expect((await getExport(ownerId, created.id)).status).toBe('running')
+    queue.retrieve.mockRejectedValueOnce(new Error('Network'))
+    expect(await getExport(ownerId, created.id)).toMatchObject({
+      status: 'running',
+      statusUnconfirmed: true,
+    })
+    queue.retrieve.mockResolvedValue({ status: 'FAILED' })
+    expect((await getExport(ownerId, created.id)).status).toBe('failed')
+    queue.retrieve.mockResolvedValue({ status: 'EXECUTING' })
+  })
+
+  it('does not return a stale failure when the worker saves the PDF during queue lookup', async () => {
+    const created = await createExport(ownerId, freeProjectId, {})
+    await attachRun(created.id, 'run-race')
+    queue.retrieve.mockImplementationOnce(async () => {
+      await getDb()
+        .update(projectExports)
+        .set({ status: 'ready', pdfKey: 'race.pdf' })
+        .where(eq(projectExports.id, created.id))
+      return { status: 'COMPLETED' }
+    })
+    expect((await getExport(ownerId, created.id)).status).toBe('ready')
   })
 })

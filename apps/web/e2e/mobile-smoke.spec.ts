@@ -125,8 +125,33 @@ test.describe('mobile critical path', () => {
     await expect(page.getByText('Фото загружено')).toBeVisible()
     await page.reload()
     await expect(page.locator('img[src*="/photo/"]')).toBeVisible()
-    // Do not start generation: this smoke test never calls a paid model.
-    await expect(page.getByRole('button', { name: 'Сгенерировать концепты' })).toBeEnabled()
+    // Abort before dispatch: neither the initial click nor the failed status check reaches a model.
+    const roomUrl = page.url()
+    let blockedGenerationRequests = 0
+    await page.route(roomUrl, async (route) => {
+      if (route.request().method() === 'POST' && route.request().headers()['next-action']) {
+        blockedGenerationRequests += 1
+        await route.abort('connectionfailed')
+      } else {
+        await route.continue()
+      }
+    })
+    const generateButton = page.getByRole('button', { name: 'Сгенерировать концепты' })
+    await generateButton.tap()
+    await expect(
+      page.getByText('Не удалось получить ответ о запуске.', { exact: false }),
+    ).toBeVisible()
+    await expect(generateButton).toHaveCount(0)
+    const generationStatus = page.getByRole('button', { name: 'Проверить статус генерации' })
+    await generationStatus.tap()
+    await expect(page.getByText('Не удалось проверить результат.', { exact: false })).toBeVisible()
+    await expect(generationStatus).toBeEnabled()
+    expect(blockedGenerationRequests).toBe(2)
+    await page.unroute(roomUrl)
+    await generationStatus.tap()
+    await expect(generateButton).toBeEnabled()
+    await page.reload()
+    await expect(generateButton).toBeEnabled()
     await expectFitsViewport(page)
     await page.goto(projectUrl)
     await page.getByRole('link', { name: 'Список покупок и смета' }).tap()
@@ -137,6 +162,29 @@ test.describe('mobile critical path', () => {
       name: 'Бесплатно собрать PDF с водяным знаком',
     })
     await expect(exportButton).toBeVisible()
+    const summaryUrl = page.url()
+    let blockedPdfRequests = 0
+    await page.route(summaryUrl, async (route) => {
+      if (route.request().method() === 'POST' && route.request().headers()['next-action']) {
+        blockedPdfRequests += 1
+        await route.abort('connectionfailed')
+      } else {
+        await route.continue()
+      }
+    })
+    await exportButton.tap()
+    await expect(
+      page.getByText('Не удалось получить ответ о запуске PDF.', { exact: false }),
+    ).toBeVisible()
+    await expect(exportButton).toHaveCount(0)
+    const pdfStatus = page.getByRole('button', { name: 'Проверить статус PDF' })
+    await pdfStatus.tap()
+    await expect(page.getByText('Не удалось проверить PDF.', { exact: false })).toBeVisible()
+    await expect(pdfStatus).toBeEnabled()
+    expect(blockedPdfRequests).toBe(2)
+    await page.unroute(summaryUrl)
+    await pdfStatus.tap()
+    await expect(exportButton).toBeEnabled()
     // Queue-enabled environments may incur external work; only exercise the local error state.
     if (!process.env.TRIGGER_SECRET_KEY) {
       await exportButton.tap()

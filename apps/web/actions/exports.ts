@@ -4,12 +4,15 @@ import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
 import { getEnv } from '@/lib/env'
 import { type ExportView, getExport, listExports, saveContact } from '@/lib/exports/repository'
+import { ExportStatusUnknownError } from '@/lib/exports/run-status'
 import { type ExportRun, startExport } from '@/lib/exports/start'
 import { AccessError } from '@/lib/projects/access'
 import { getExportsByUserLimiter } from '@/lib/redis'
 import { getSession } from '@/lib/session'
 
-export type ActionResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string }
+export type ActionResult<T = undefined> =
+  | { ok: true; data: T }
+  | { ok: false; error: string; checkStatus?: boolean }
 
 const SESSION_EXPIRED = 'Сессия закончилась. Войдите снова.'
 const GENERIC = 'Не получилось. Попробуйте ещё раз, а если повторится, напишите нам.'
@@ -48,7 +51,10 @@ async function currentUserId(): Promise<string | null> {
   return session?.user.id ?? null
 }
 
-function failure(error: unknown): { ok: false; error: string } {
+function failure(error: unknown): { ok: false; error: string; checkStatus?: boolean } {
+  if (error instanceof ExportStatusUnknownError) {
+    return { ok: false, error: error.message, checkStatus: true }
+  }
   if (error instanceof AccessError) {
     return { ok: false, error: error.message }
   }

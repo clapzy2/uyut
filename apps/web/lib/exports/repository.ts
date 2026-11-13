@@ -16,10 +16,11 @@ import {
   isUuid,
   NotFoundError,
 } from '@/lib/projects/access'
-import { EXPORT_STALE_AFTER_MS, staleBefore } from '@/lib/queue/stale'
 import { presignedObjectUrl } from '@/lib/storage'
+import { exportQueueStatus } from './run-status'
 
 export type ExportView = {
+  statusUnconfirmed?: boolean
   id: string
   kind: ExportKind
   status: ExportStatus
@@ -34,9 +35,12 @@ export type ExportView = {
   finishedAt: Date | null
 }
 
-async function toView(row: typeof projectExports.$inferSelect): Promise<ExportView> {
+async function toView(
+  row: typeof projectExports.$inferSelect & { statusUnconfirmed?: boolean },
+): Promise<ExportView> {
   const ttl = getEnv().PDF_URL_TTL_HOURS * 60 * 60
   return {
+    statusUnconfirmed: row.statusUnconfirmed,
     id: row.id,
     kind: row.kind,
     status: row.status,
@@ -51,45 +55,36 @@ async function toView(row: typeof projectExports.$inferSelect): Promise<ExportVi
   }
 }
 
-const EXPORT_LOST = 'Сборка не дошла до конца: задача пропала. Попробуйте собрать заново.'
-
-/**
- * Гасит сборки, которые задача так и не довела до конца.
- *
- * Делается при чтении: карточка выгрузки всё равно перечитывает список, и заводить ради
- * этого отдельное расписание незачем. Но пишем только когда есть что гасить, иначе каждый
- * просмотр итогов стоил бы запроса на запись. Условие по статусу дублируется в самом update:
- * сборка, дописавшаяся между чтением и записью, не пострадает.
- */
-async function failStale(
-  rows: Array<typeof projectExports.$inferSelect>,
-  now: Date,
-): Promise<Array<typeof projectExports.$inferSelect>> {
-  const lost = rows.filter(
-    (row) =>
-      (row.status === 'pending' || row.status === 'running') &&
-      row.createdAt < staleBefore(now, EXPORT_STALE_AFTER_MS),
-  )
-  if (lost.length === 0) {
-    return rows
-  }
-  await getDb()
-    .update(projectExports)
-    .set({ status: 'failed', error: EXPORT_LOST, finishedAt: now })
-    .where(
-      and(
-        inArray(
-          projectExports.id,
-          lost.map((row) => row.id),
-        ),
-        inArray(projectExports.status, ['pending', 'running']),
-      ),
-    )
-  const lostIds = new Set(lost.map((row) => row.id))
-  return rows.map((row) =>
-    lostIds.has(row.id)
-      ? { ...row, status: 'failed' as const, error: EXPORT_LOST, finishedAt: now }
-      : row,
+async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
+  return Promise.all(
+    rows.map(async (row) => {
+      if (row.status !== 'pending' && row.status !== 'running') return row
+      const status = await exportQueueStatus(row.id, row.runId).catch(() => null)
+      if (!status) return { ...row, statusUnconfirmed: true }
+      if (status.terminal) {
+        await getDb()
+          .update(projectExports)
+          .set({
+            status: 'failed',
+            error: 'Задача завершилась без готового PDF. Можно собрать заново.',
+            finishedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(projectExports.id, row.id),
+              inArray(projectExports.status, ['pending', 'running']),
+            ),
+          )
+      } else if (!row.runId) {
+        await attachRun(row.id, status.runId)
+      }
+      // The worker may have saved the PDF while the queue request was in flight.
+      const [fresh] = await getDb()
+        .select()
+        .from(projectExports)
+        .where(eq(projectExports.id, row.id))
+      return fresh ?? row
+    }),
   )
 }
 
@@ -105,7 +100,7 @@ export async function listExports(
     .where(eq(projectExports.projectId, project.id))
     .orderBy(desc(projectExports.createdAt))
     .limit(limit)
-  return Promise.all((await failStale(rows, new Date())).map(toView))
+  return Promise.all((await reconcile(rows)).map(toView))
 }
 
 export async function getExport(userId: string, exportId: string): Promise<ExportView> {
@@ -121,7 +116,7 @@ export async function getExport(userId: string, exportId: string): Promise<Expor
     throw new NotFoundError('Экспорт не найден')
   }
   await assertOwnerOrCollaborator(userId, row.projectId)
-  return toView(row)
+  return toView((await reconcile([row]))[0] ?? row)
 }
 
 /** Оплаченный проект или владелец с Pro получают чистый документ, остальные — с водяным знаком */
@@ -142,15 +137,51 @@ export async function createExport(
   return { id: row.id, kind }
 }
 
+export async function claimExport(userId: string, projectId: string, options: ExportOptions) {
+  const project = await assertOwner(userId, projectId)
+  const kind: ExportKind = project.isPaid || (await getPlan(userId)) === 'pro' ? 'paid' : 'free'
+  return getDb().transaction(async (tx) => {
+    await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, project.id))
+      .for('update')
+    const [active] = await tx
+      .select()
+      .from(projectExports)
+      .where(
+        and(
+          eq(projectExports.projectId, project.id),
+          inArray(projectExports.status, ['pending', 'running']),
+        ),
+      )
+      .limit(1)
+    if (active) return { id: active.id, kind: active.kind, existing: true }
+    const [created] = await tx
+      .insert(projectExports)
+      .values({ projectId: project.id, kind, options })
+      .returning({ id: projectExports.id })
+    if (!created) throw new Error('export insert returned nothing')
+    return { id: created.id, kind, existing: false }
+  })
+}
+
 export async function attachRun(exportId: string, runId: string): Promise<void> {
-  await getDb().update(projectExports).set({ runId }).where(eq(projectExports.id, exportId))
+  await getDb()
+    .update(projectExports)
+    .set({ runId })
+    .where(
+      and(eq(projectExports.id, exportId), inArray(projectExports.status, ['pending', 'running'])),
+    )
 }
 
 export async function markExportFailed(exportId: string, error: string): Promise<void> {
   await getDb()
     .update(projectExports)
     .set({ status: 'failed', error: error.slice(0, 500), finishedAt: new Date() })
-    .where(eq(projectExports.id, exportId))
+    .where(
+      and(eq(projectExports.id, exportId), inArray(projectExports.status, ['pending', 'running'])),
+    )
 }
 
 /** Имя, адрес и телефон хранятся в проекте; в документ попадают только по галочкам */

@@ -217,6 +217,7 @@ export function ExportCard({
         contact: { clientName, address, phone },
       })
       if (!result.ok) {
+        if (result.checkStatus) setUncertainStart(true)
         setError(result.error)
         return
       }
@@ -262,6 +263,10 @@ export function ExportCard({
         toast({ title: 'PDF готов', tone: 'success' })
       } else if (item?.status === 'failed') {
         setError('PDF не собрался. Можно запустить сборку ещё раз.')
+      } else if (item?.statusUnconfirmed) {
+        setError(
+          'Статус очереди пока недоступен. Сборка могла продолжиться; повторите проверку позже.',
+        )
       } else if (item) {
         setError(
           failed
@@ -454,7 +459,9 @@ export function ExportCard({
             </p>
           ) : latest.status === 'running' || latest.status === 'pending' ? (
             <p className="border-t border-line pt-4 text-[13px] leading-relaxed text-ink-2">
-              Предыдущая сборка ещё идёт, обновите страницу через минуту.
+              {latest.statusUnconfirmed
+                ? 'Не удалось подтвердить статус предыдущей сборки. Проверьте статус через минуту; новую сборку пока не запускаем.'
+                : 'Предыдущая сборка ещё идёт, обновите страницу через минуту.'}
             </p>
           ) : null
         ) : null}
