@@ -101,6 +101,22 @@ test.describe('recovery without external jobs', () => {
       await expect(status).toBeVisible()
       await expect(page.locator(`a[href="${roomUrl}/concepts/${readyId}"]`)).toBeVisible()
 
+      // A queue outage must not hide a previously saved concept.
+      await page.goto(`${roomUrl}/concepts/${readyId}`)
+      await expect(page.getByRole('heading', { name: 'Концепт 1', exact: true })).toBeVisible()
+      await expect(
+        page.getByText('Не удалось проверить статус предыдущей генерации.', { exact: false }),
+      ).toBeVisible()
+      await expect(page.getByLabel('Поправить этот вариант')).toHaveCount(0)
+      await page.context().setOffline(true)
+      await expect(page.getByRole('heading', { name: 'Концепт 1', exact: true })).toBeVisible()
+      await page.context().setOffline(false)
+      await page.reload()
+      await expect(
+        page.getByText('Не удалось проверить статус предыдущей генерации.', { exact: false }),
+      ).toBeVisible()
+      await page.goto(roomUrl)
+
       // Simulate the reconciler's terminal write, never launch a worker.
       await db.update(concepts).set({ status: 'failed' }).where(eq(concepts.id, pendingId))
       await db
@@ -110,6 +126,12 @@ test.describe('recovery without external jobs', () => {
       await status.tap()
       await expect(page.getByRole('button', { name: /^Сгенерировать/ })).toBeEnabled()
       await expect(page.locator(`a[href="${roomUrl}/concepts/${readyId}"]`)).toBeVisible()
+      await page.goto(`${roomUrl}/concepts/${readyId}`)
+      await expect(page.getByLabel('Поправить этот вариант')).toBeVisible()
+      await expect(
+        page.getByText('Не удалось проверить статус предыдущей генерации.', { exact: false }),
+      ).toHaveCount(0)
+      expect(await db.select().from(concepts).where(eq(concepts.roomId, room.id))).toHaveLength(2)
 
       const exportId = randomUUID()
       await db.insert(projectExports).values([
