@@ -53,10 +53,20 @@ export default async function ConceptPage({ params }: { params: Params }) {
 
   // Обновление вкладки теряет ожидание, и человек легко закажет вторую платную правку поверх первой.
   // Поэтому спрашиваем сервер, не идёт ли уже расчёт по этой комнате.
-  const busy =
-    data.role === 'owner'
-      ? await generationStillRunning(await getRoom(session.user.id, data.room.id))
-      : false
+  let busy = false
+  let statusUnknown = false
+  if (data.role === 'owner') {
+    const room = await getRoom(session.user.id, data.room.id)
+    try {
+      busy = await generationStillRunning(room)
+    } catch (error) {
+      // Ошибка очереди не должна закрывать уже сохранённое изображение и товары.
+      // Но разрешать новую платную правку без проверки предыдущей нельзя.
+      console.error('concept page generation status', error)
+      busy = true
+      statusUnknown = true
+    }
+  }
 
   return (
     <section className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14 lg:py-16">
@@ -105,16 +115,23 @@ export default async function ConceptPage({ params }: { params: Params }) {
       />
       {data.role === 'owner' && data.concept.status === 'ready' ? (
         <div className="mt-10 max-w-2xl">
-          <ConceptEditForm
-            conceptId={data.concept.id}
-            roomId={data.room.id}
-            roomHref={`/projects/${data.room.projectId}/rooms/${data.room.id}`}
-            busyElsewhere={busy}
-            objects={data.objects.map((object) => ({
-              id: object.id,
-              label: objectLabel(object.label, object.category),
-            }))}
-          />
+          {statusUnknown ? (
+            <p role="status" className="text-[15px] leading-relaxed text-ink-2">
+              Не удалось проверить статус предыдущей генерации. Сохранённый вариант доступен. Перед
+              новой правкой вернитесь ко всем вариантам и проверьте статус.
+            </p>
+          ) : (
+            <ConceptEditForm
+              conceptId={data.concept.id}
+              roomId={data.room.id}
+              roomHref={`/projects/${data.room.projectId}/rooms/${data.room.id}`}
+              busyElsewhere={busy}
+              objects={data.objects.map((object) => ({
+                id: object.id,
+                label: objectLabel(object.label, object.category),
+              }))}
+            />
+          )}
         </div>
       ) : null}
       <ChatDrawer
@@ -122,7 +139,7 @@ export default async function ConceptPage({ params }: { params: Params }) {
         roomId={data.room.id}
         conceptId={data.concept.id}
         hasConcepts
-        canRun={data.role === 'owner'}
+        canRun={data.role === 'owner' && !busy}
       />
     </section>
   )
