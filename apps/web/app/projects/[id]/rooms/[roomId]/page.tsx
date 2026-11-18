@@ -2,6 +2,7 @@ import { projectedContourOptions, projectedGeometryKey } from '@uyut/catalog/pro
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
+import { loadSavedFurnitureReference } from '@/actions/furniture-reference'
 import { uploadRoomPhoto } from '@/actions/rooms'
 import { ChatDrawer } from '@/components/chat/chat-drawer'
 import { ConceptsPanel } from '@/components/concepts/concepts-panel'
@@ -93,6 +94,8 @@ export default async function RoomPage({ params }: { params: Params }) {
   // Читаем после восстановления очереди: оно могло только что сохранить конечный отказ.
   const failedBeforeCards = await lastGenerationFailedBeforeCards(session.user.id, room.id)
   const photoUrl = room.photoUrl ? await presignedObjectUrl(room.photoUrl) : null
+  const furnitureReference =
+    isOwner && room.condition === 'keep' ? await loadSavedFurnitureReference(room.id) : null
   const uploadPhotoForRoom = uploadRoomPhoto.bind(null, room.id)
   const meta = [formatArea(room.areaM2), roomKindLabels[room.kind].toLowerCase()]
     .filter(Boolean)
@@ -242,6 +245,7 @@ export default async function RoomPage({ params }: { params: Params }) {
               hasPhoto={Boolean(room.photoUrl)}
               sourcePhotoUrl={photoUrl}
               sourcePhotoRevision={room.photoRevision}
+              initialFurnitureReference={furnitureReference}
               keepsFurniture={room.condition === 'keep'}
               onboarded={Boolean(room.project.onboardedAt)}
               canGenerate={isOwner}

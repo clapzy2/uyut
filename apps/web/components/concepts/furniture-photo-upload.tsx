@@ -1,29 +1,41 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { uploadFurnitureReference } from '@/actions/furniture-reference'
+import {
+  detachFurnitureReference,
+  type FurnitureReferenceView,
+  uploadFurnitureReference,
+} from '@/actions/furniture-reference'
 import { PHOTO_ACCEPT, PHOTO_LIMIT_TEXT, PHOTO_MAX_BYTES, tooLargeMessage } from '@/lib/files/rules'
 
 export function FurniturePhotoUpload({
   roomId,
   photoRevision,
+  initialReference = null,
   onChange,
   onPendingChange,
 }: {
   roomId: string
   photoRevision: number
+  initialReference?: FurnitureReferenceView | null
   onChange: (token: string | null) => void
   onPendingChange: (pending: boolean) => void
 }) {
   const [pending, setPending] = useState(false)
   const [ready, setReady] = useState(false)
-  const [preview, setPreview] = useState<string | null>(null)
+  const [preview, setPreview] = useState<string | null>(initialReference?.previewUrl ?? null)
+  const [token, setToken] = useState<string | null>(initialReference?.token ?? null)
   const [error, setError] = useState<string | null>(null)
   const inFlight = useRef(false)
   const input = useRef<HTMLInputElement>(null)
   useEffect(() => {
     setReady(true)
   }, [])
+
+  useEffect(() => {
+    setPreview(initialReference?.previewUrl ?? null)
+    setToken(initialReference?.token ?? null)
+  }, [initialReference?.token, initialReference?.previewUrl])
 
   return (
     <div className="border border-line p-4">
@@ -63,6 +75,7 @@ export function FurniturePhotoUpload({
               return
             }
             setPreview(result.data.previewUrl)
+            setToken(result.data.token)
             onChange(result.data.token)
           } catch {
             setError(
@@ -97,16 +110,34 @@ export function FurniturePhotoUpload({
             className="my-3 max-h-64 max-w-full object-contain"
           />
           <p role="status" className="text-sm">
-            Образец прикреплён к следующему запуску. После перезагрузки страницы прикрепите его
-            снова.
+            Образец сохранён в комнате. При замене фото комнаты его потребуется прикрепить заново.
           </p>
           <button
             type="button"
             disabled={!ready || pending}
             className="py-2 text-sm underline"
-            onClick={() => {
-              setPreview(null)
-              onChange(null)
+            onClick={async () => {
+              if (!token || inFlight.current) return
+              inFlight.current = true
+              setPending(true)
+              onPendingChange(true)
+              setError(null)
+              try {
+                const result = await detachFurnitureReference(roomId, token)
+                if (!result.ok) {
+                  setError(result.error)
+                  return
+                }
+                setPreview(null)
+                setToken(null)
+                onChange(null)
+              } catch {
+                setError('Не удалось отключить образец. Повторите попытку.')
+              } finally {
+                inFlight.current = false
+                setPending(false)
+                onPendingChange(false)
+              }
             }}
           >
             Не использовать это фото

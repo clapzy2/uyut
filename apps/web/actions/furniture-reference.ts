@@ -1,17 +1,70 @@
 'use server'
 
 import { randomUUID } from 'node:crypto'
-import { signFurnitureReference } from '@/lib/concepts/furniture-reference-token'
+import {
+  readFurnitureReference,
+  signFurnitureReference,
+} from '@/lib/concepts/furniture-reference-token'
 import { getEnv } from '@/lib/env'
 import { preparePhoto, UploadError } from '@/lib/files/uploads'
 import { AccessError, requireOwner } from '@/lib/projects/access'
+import { saveFurnitureReference } from '@/lib/projects/furniture-reference'
 import { getRoom } from '@/lib/projects/repository'
 import { getSession } from '@/lib/session'
 import { deleteObject, presignedObjectUrl, putObject } from '@/lib/storage'
 
-type UploadResult =
-  | { ok: true; data: { token: string; previewUrl: string } }
-  | { ok: false; error: string }
+type UploadResult = { ok: true; data: FurnitureReferenceView } | { ok: false; error: string }
+
+export type FurnitureReferenceView = { token: string; previewUrl: string }
+
+/** Восстанавливаем образец только владельцу и только для текущего фото комнаты. */
+export async function loadSavedFurnitureReference(
+  roomId: string,
+): Promise<FurnitureReferenceView | null> {
+  const session = await getSession()
+  if (!session) return null
+  const room = await getRoom(session.user.id, roomId)
+  requireOwner(room.role)
+  const saved = room.furnitureReference
+  if (
+    !saved ||
+    !room.photoUrl ||
+    room.condition !== 'keep' ||
+    saved.photoRevision !== room.photoRevision
+  )
+    return null
+  const token = signFurnitureReference(
+    getEnv().BETTER_AUTH_SECRET,
+    { userId: session.user.id, roomId, photoRevision: room.photoRevision },
+    saved.key,
+  )
+  return { token, previewUrl: await presignedObjectUrl(saved.key, 60 * 60) }
+}
+
+export async function detachFurnitureReference(
+  roomId: string,
+  token: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const session = await getSession()
+  if (!session) return { ok: false, error: 'Сессия закончилась. Войдите снова.' }
+  try {
+    const room = await getRoom(session.user.id, roomId)
+    requireOwner(room.role)
+    const reference = readFurnitureReference(
+      getEnv().BETTER_AUTH_SECRET,
+      { userId: session.user.id, roomId, photoRevision: room.photoRevision },
+      token,
+    )
+    if (!reference) return { ok: false, error: 'Образец устарел. Обновите страницу.' }
+    await saveFurnitureReference(session.user.id, roomId, room.photoRevision, null, reference.key)
+    return { ok: true }
+  } catch (error) {
+    if (error instanceof AccessError || error instanceof UploadError)
+      return { ok: false, error: error.message }
+    console.error('furniture reference detach failed', error)
+    return { ok: false, error: 'Не удалось отключить образец. Повторите попытку.' }
+  }
+}
 
 /** Отдельный образец исходной мебели для следующего переноса, не замена фото комнаты. */
 export async function uploadFurnitureReference(
@@ -62,6 +115,13 @@ export async function uploadFurnitureReference(
       getEnv().BETTER_AUTH_SECRET,
       { userId: session.user.id, roomId, photoRevision },
       key,
+    )
+    await saveFurnitureReference(
+      session.user.id,
+      roomId,
+      photoRevision,
+      { key, photoRevision },
+      room.furnitureReference?.key ?? null,
     )
     return { ok: true, data: { token, previewUrl } }
   } catch (error) {

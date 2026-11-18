@@ -6,6 +6,13 @@ import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import { putObject } from '../../../jobs/src/lib/s3'
 
+test.use({
+  extraHTTPHeaders: {
+    origin: `http://localhost:${process.env.PORT ?? '3000'}`,
+    'x-forwarded-for': `10.30.${Math.floor(Math.random() * 254) + 1}.${Math.floor(Math.random() * 254) + 1}`,
+  },
+})
+
 test('отдельное фото предмета не заменяет фото комнаты и сбрасывается при смене исходника', async ({
   page,
 }) => {
@@ -69,6 +76,7 @@ test('отдельное фото предмета не заменяет фот�
     ).toBeVisible()
     await page.getByRole('radio', { name: 'Отдельное фото предмета', exact: true }).check()
     const input = page.getByLabel('Загрузить отдельное фото предмета', { exact: true })
+    await expect(input).toBeEnabled()
     await input.setInputFiles({ name: 'chest.png', mimeType: 'image/png', buffer: photo })
     await expect(
       page.getByRole('img', { name: 'Прикреплённый предмет для переноса' }),
@@ -80,12 +88,46 @@ test('отдельное фото предмета не заменяет фот�
     const [unchanged] = await db.select().from(rooms).where(eq(rooms.id, roomId))
     expect(unchanged?.photoUrl).toBe(originalKey)
     expect(unchanged?.generationRunId).toBeNull()
+    await expect(input).toBeEnabled()
     await input.setInputFiles({
       name: 'bad.png',
       mimeType: 'image/png',
       buffer: Buffer.from('not an image'),
     })
     await expect(page.getByRole('alert').filter({ hasText: 'не похоже' })).toBeVisible()
+    await expect(
+      page.getByRole('img', { name: 'Прикреплённый предмет для переноса' }),
+    ).toBeVisible()
+    await page.reload()
+    await expect(
+      page.getByRole('img', { name: 'Прикреплённый предмет для переноса' }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Перенести выделенный предмет - 1 вариант' }),
+    ).toBeEnabled()
+    await page.getByRole('radio', { name: 'Выделить на фото комнаты', exact: true }).check()
+    await expect(
+      page.getByRole('button', { name: 'Сгенерировать концепты', exact: true }),
+    ).toBeVisible()
+    await page.getByRole('radio', { name: 'Отдельное фото предмета', exact: true }).check()
+    await expect(
+      page.getByRole('img', { name: 'Прикреплённый предмет для переноса' }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Перенести выделенный предмет - 1 вариант' }),
+    ).toBeEnabled()
+    await page.getByRole('button', { name: 'Не использовать это фото', exact: true }).click()
+    await expect(page.getByRole('img', { name: 'Прикреплённый предмет для переноса' })).toHaveCount(
+      0,
+    )
+    const [detached] = await db.select().from(rooms).where(eq(rooms.id, roomId))
+    expect(detached?.furnitureReference).toBeNull()
+    await page.reload()
+    await expect(page.getByRole('img', { name: 'Прикреплённый предмет для переноса' })).toHaveCount(
+      0,
+    )
+    await expect(input).toBeEnabled()
+    await input.setInputFiles({ name: 'chest.png', mimeType: 'image/png', buffer: photo })
     await expect(
       page.getByRole('img', { name: 'Прикреплённый предмет для переноса' }),
     ).toBeVisible()

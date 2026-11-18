@@ -162,6 +162,7 @@ function addRoom(data: ProjectSnapshot): Room {
     refreshFinish: false,
     photoUrl: null,
     photoRevision: 0,
+    furnitureReference: null,
     planUrl: null,
     notes: null,
     measurements: { widthCm: 400, depthCm: 300 },

@@ -59,6 +59,7 @@ function fixture() {
     refreshFinish: false,
     photoUrl: null,
     photoRevision: 0,
+    furnitureReference: null,
     planUrl: null,
     notes: null,
     measurements: { widthCm: 320, depthCm: 600, ceilingCm: 270, projectedContour: binding },

@@ -136,6 +136,7 @@ describe('пожелания конкретного варианта в авто
     const row = setupDatabase(true)
     Object.assign(row.room, { condition: 'keep', photoRevision: 3 })
     const key = `projects/${row.project.id}/rooms/${row.room.id}/furniture-references/reference.webp`
+    Object.assign(row.room, { furnitureReference: { key, photoRevision: 3 } })
     const furniture = await sharp({
       create: { width: 4, height: 4, channels: 3, background: 'red' },
     })
@@ -174,7 +175,7 @@ describe('пожелания конкретного варианта в авто
       `data:image/png;base64,${furniture.toString('base64')}`,
     ])
   })
-  it.each(['old-revision', 'foreign-room', 'lost-file'])(
+  it.each(['old-revision', 'foreign-room', 'lost-file', 'detached', 'replaced'])(
     'не рисует при непригодном втором фото: %s',
     async (reason) => {
       const row = setupDatabase(true)
@@ -183,6 +184,15 @@ describe('пожелания конкретного варианта в авто
         reason === 'foreign-room'
           ? 'projects/other/rooms/other/furniture-references/reference.webp'
           : `projects/${row.project.id}/rooms/${row.room.id}/furniture-references/reference.webp`
+      Object.assign(row.room, {
+        furnitureReference:
+          reason === 'detached'
+            ? null
+            : {
+                key: reason === 'replaced' ? key.replace('reference.webp', 'new.webp') : key,
+                photoRevision: 4,
+              },
+      })
       if (reason === 'lost-file') mocks.read.mockRejectedValue(new Error('missing file'))
       await expect(
         run({

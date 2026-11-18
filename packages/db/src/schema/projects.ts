@@ -698,6 +698,8 @@ export type RoomMeasurements = {
   spots?: RoomSpot[]
 }
 
+export type RoomFurnitureReference = { key: string; photoRevision: number }
+
 export const rooms = pgTable(
   'rooms',
   {
@@ -715,6 +717,8 @@ export const rooms = pgTable(
     photoUrl: text('photo_url'),
     // Увеличивается при каждой замене фото: прежние концепты остаются, но помечаются отдельно.
     photoRevision: integer('photo_revision').notNull().default(0),
+    /** Образец конкретного предмета, действительный только для этой ревизии фото комнаты. */
+    furnitureReference: jsonb('furniture_reference').$type<RoomFurnitureReference>(),
     planUrl: text('plan_url'),
     notes: text('notes'),
     /**
