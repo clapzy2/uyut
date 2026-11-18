@@ -2,13 +2,21 @@
 
 import { randomUUID } from 'node:crypto'
 import { ApiError, tasks, auth as triggerAuth } from '@trigger.dev/sdk'
-import { buildEditPlan, type DuoProposal, type EditPlan } from '@uyut/ai'
+import {
+  buildEditPlan,
+  type DuoProposal,
+  type EditPlan,
+  type SourceObject,
+  sourceMovePlanIssue,
+  validSourceObject,
+} from '@uyut/ai'
 import { revalidatePath } from 'next/cache'
 import { recordAudit } from '@/lib/audit'
 import { bumpProjectVersion } from '@/lib/collaboration/live'
 import { APARTMENT_COUNT, apartmentPlan } from '@/lib/concepts/apartment'
 import { getDuoOffer } from '@/lib/concepts/duo'
 import { readEditPlan, signEditPlan } from '@/lib/concepts/edit-plan-token'
+import { readFurnitureReference } from '@/lib/concepts/furniture-reference-token'
 import * as conceptsRepository from '@/lib/concepts/repository'
 import {
   type ConceptRunProgress,
@@ -122,6 +130,8 @@ export type ConceptRequest = {
   editSteps?: Array<{ titleRu: string; prompt: string; needsObject?: boolean }>
   /** Предмет с рендера: его вырезка уйдёт в модель вторым кадром */
   objectId?: string
+  sourceObject?: SourceObject
+  referencePhotoToken?: string
 }
 
 export async function requestConcepts(
@@ -148,6 +158,43 @@ export async function requestConcepts(
       }
     }
     const batchId = randomUUID()
+    const sourceObject = request.sourceObject
+    const referencePhoto = request.referencePhotoToken
+      ? readFurnitureReference(
+          env.BETTER_AUTH_SECRET,
+          { userId, roomId: room.id, photoRevision: room.photoRevision },
+          request.referencePhotoToken,
+        )
+      : null
+    if (
+      request.referencePhotoToken &&
+      (!referencePhoto ||
+        sourceObject ||
+        baseConceptId ||
+        room.condition !== 'keep' ||
+        !room.photoUrl)
+    ) {
+      return {
+        ok: false,
+        error: 'Фото предмета устарело. Прикрепите его заново к текущему фото комнаты.',
+      }
+    }
+    const sourceTransfer = Boolean(sourceObject || referencePhoto)
+    let sourcePlan: EditPlan | undefined
+    if (sourceObject) {
+      if (
+        !validSourceObject(sourceObject) ||
+        baseConceptId ||
+        room.condition !== 'keep' ||
+        !room.photoUrl ||
+        sourceObject.photoRevision !== room.photoRevision
+      ) {
+        return {
+          ok: false,
+          error: 'Фото изменилось или предмет выделен неверно. Выделите его заново.',
+        }
+      }
+    }
     // Занимаем комнату до лимитера и внешней очереди. Две вкладки или двойной клик иначе
     // успевают отправить две платные задачи до того, как первая запишет свой runId.
     if (!(await claimRoomForGeneration(room.id, batchId))) {
@@ -160,16 +207,43 @@ export async function requestConcepts(
     if (!(await allowGeneration(userId, room.id, batchId))) {
       return { ok: false, error: 'Сегодня уже много генераций. Попробуйте через час.' }
     }
+    if (sourceTransfer) {
+      try {
+        sourcePlan = await buildEditPlan(env.FAL_KEY, room.notes ?? '')
+        const planIssue = sourceMovePlanIssue(sourcePlan)
+        if (planIssue) {
+          await clearGenerationRun(room.id, `pending:${batchId}`)
+          return {
+            ok: false,
+            error: planIssue,
+          }
+        }
+      } catch (error) {
+        await clearGenerationRun(room.id, `pending:${batchId}`)
+        throw error
+      }
+    }
     const handle = await enqueueConcepts({
       roomId: room.id,
       batchId,
       // В режиме «оставить как есть» пять вариантов одной и той же комнаты почти не отличаются: платить за пять незачем
-      count: baseConceptId || room.condition === 'keep' ? EDIT_COUNT : FRESH_COUNT,
+      count: sourceTransfer
+        ? 1
+        : baseConceptId || room.condition === 'keep'
+          ? EDIT_COUNT
+          : FRESH_COUNT,
+      ...(sourceTransfer && sourcePlan
+        ? {
+            ...(sourceObject ? { sourceObject } : { referencePhoto }),
+            editSteps: sourcePlan.steps,
+            editRequest: room.notes ?? '',
+          }
+        : {}),
       ...(revision ? { revision: revision.slice(0, 500) } : {}),
       ...(baseConceptId ? { baseConceptId } : {}),
-      ...(editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
-      ...(editSteps && editSteps.length > 0 ? { editSteps } : {}),
-      ...(objectId ? { objectId } : {}),
+      ...(!sourceTransfer && editRequest ? { editRequest: editRequest.slice(0, 500) } : {}),
+      ...(!sourceTransfer && editSteps && editSteps.length > 0 ? { editSteps } : {}),
+      ...(!sourceTransfer && objectId ? { objectId } : {}),
     })
     const run = await runForClient(room.id, batchId, handle)
     await recordAudit({
@@ -360,6 +434,12 @@ export async function reviseConcept(
     }
     if (plan.steps.length === 0) {
       return { ok: false, error: plan.warningRu || 'Такую правку сделать не получится.' }
+    }
+    if (plan.steps.some((step) => step.needsObject) && !objectId) {
+      return {
+        ok: false,
+        error: 'Выберите исходный предмет под полем правки. Без его образца перенос не запускаем.',
+      }
     }
     return await requestConcepts(concept.roomId, {
       baseConceptId: concept.id,

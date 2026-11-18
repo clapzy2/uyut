@@ -8,7 +8,6 @@ import {
   conceptPlanReviewSource,
   createFalRenderer,
   createPromptBuilder,
-  editStepPrompt,
   isConceptModelId,
   isLayoutCorrectionImprovement,
   isUsableArchitectureAnchor,
@@ -22,6 +21,7 @@ import {
   type StyleEntry,
   styleLibrary,
   unavailableQualityReview,
+  validSourceObject,
 } from '@uyut/ai'
 import {
   conceptLayout,
@@ -46,6 +46,7 @@ import { z } from 'zod'
 import { prepareConceptLayoutGuide } from './lib/concept-layout-guide'
 import { db } from './lib/db'
 import { requireEnv } from './lib/env'
+import { renderEditSteps } from './lib/render-edit-steps'
 import { putObject, readObject } from './lib/s3'
 import { cropObject, segmentAndMatch } from './segment-and-match'
 
@@ -61,7 +62,7 @@ const payloadSchema = z.object({
    */
   baseConceptId: z.uuid().optional(),
   /** Текст просьбы словами человека: показываем его рядом с результатом */
-  editRequest: z.string().max(500).optional(),
+  editRequest: z.string().max(2000).optional(),
   /**
    * Готовый план правки по шагам. Считается до запуска и показывается человеку,
    * чтобы он видел, за что платит.
@@ -87,6 +88,10 @@ const payloadSchema = z.object({
    * так работает и со старыми концептами, где вырезки нигде не сохранены.
    */
   objectId: z.uuid().optional(),
+  sourceObject: z.custom<import('@uyut/ai').SourceObject>(validSourceObject).optional(),
+  referencePhoto: z
+    .object({ key: z.string().min(1).max(500), photoRevision: z.number().int().nonnegative() })
+    .optional(),
   /** Варианты на двоих: у каждого рендера своя правка и название, общая часть промпта из шаблона */
   duo: z
     .object({
@@ -134,41 +139,6 @@ function withRenderMeter(engine: ConceptRenderer, onRequest: () => void): Concep
 }
 
 type Progress = { stage: string; done: number; total: number; failed: number }
-
-/**
- * Правка по шагам: каждый следующий рисуется поверх результата предыдущего.
- *
- * Одним заданием модель не переносит предметы вообще, а двумя — переносит. Проверено на живой
- * кухне: «убери шкаф» плюс «поставь шкаф под окном» дали то, чего не дала ни одна формулировка в лоб.
- * Комната за четыре шага не расползается, поэтому ошибки цепочки не копятся.
- */
-async function renderSteps(
-  engine: ConceptRenderer,
-  steps: Array<{ prompt: string; needsObject?: boolean }>,
-  imageUrl: string | undefined,
-  referenceUrls: string[],
-  aspectRatio: string,
-  editRequest?: string,
-): Promise<RenderResult> {
-  let current = imageUrl
-  let last: RenderResult | null = null
-  for (const step of steps) {
-    // Кадр предмета нужен только тому шагу, который что-то ставит. На шаге «убрать шкаф»
-    // вторая картинка со шкафом — прямое противоречие команде, и модель рисовала его заново
-    const withObject = referenceUrls.length > 0 && step.needsObject === true
-    last = await engine.render({
-      prompt: editStepPrompt(step.prompt, editRequest),
-      imageUrl: current,
-      ...(withObject ? { referenceUrls } : {}),
-      aspectRatio,
-    })
-    current = `data:${last.contentType};base64,${last.body.toString('base64')}`
-  }
-  if (!last) {
-    throw new Error('план правки пуст')
-  }
-  return last
-}
 
 /**
  * Вырезка предмета с рендера, на котором его нашли.
@@ -290,6 +260,25 @@ export const generateConcept = task({
       throw new Error(`концепт-основа ${payload.baseConceptId} не найден или без рендера`)
     }
 
+    let furniturePhoto: Awaited<ReturnType<typeof readObject>> | null = null
+    if (payload.referencePhoto) {
+      const prefix = `projects/${project.id}/rooms/${room.id}/furniture-references/`
+      if (
+        base ||
+        payload.sourceObject ||
+        !room.photoUrl ||
+        room.condition !== 'keep' ||
+        payload.referencePhoto.photoRevision !== room.photoRevision ||
+        !payload.referencePhoto.key.startsWith(prefix) ||
+        !payload.referencePhoto.key.endsWith('.webp') ||
+        payload.editSteps?.filter((step) => step.needsObject).length !== 1 ||
+        !/^[a-zA-Z0-9-]+\.webp$/.test(payload.referencePhoto.key.slice(prefix.length))
+      ) {
+        throw new Error('Фото предмета не относится к текущему фото комнаты')
+      }
+      furniturePhoto = await readObject(payload.referencePhoto.key)
+    }
+
     const count = payload.duo ? payload.duo.variations.length : payload.count
     publish({ stage: 'brief', done: 0, total: count, failed: 0 })
     const { primary, secondary } = pickStyles(project.styleReferenceEmbedding)
@@ -306,7 +295,7 @@ export const generateConcept = task({
       // основа — уже готовый интерьер, и переделывать его целиком никто не просил.
       condition: base ? 'keep' : room.condition,
       // У правки своя просьба, заметки комнаты в неё не подмешиваем
-      notes: base ? (payload.editRequest ?? null) : room.notes,
+      notes: payload.editSteps ? (payload.editRequest ?? room.notes) : room.notes,
       revision: payload.revision ?? null,
       hasPhoto: Boolean(base ?? room.photoUrl),
       ...(conceptMeasurements
@@ -329,15 +318,17 @@ export const generateConcept = task({
     }
 
     publish({ stage: 'prompt', done: 0, total: count, failed: 0 })
-    const plan = payload.duo
-      ? {
-          ...buildTemplatePlan(brief, count),
-          variations: payload.duo.variations.map((variation) => variation.revision),
-        }
-      : await createPromptBuilder({
-          anthropicKey: process.env.ANTHROPIC_API_KEY,
-          falKey: process.env.FAL_KEY,
-        }).build(brief, count)
+    const plan = payload.editSteps
+      ? buildTemplatePlan(brief, count)
+      : payload.duo
+        ? {
+            ...buildTemplatePlan(brief, count),
+            variations: payload.duo.variations.map((variation) => variation.revision),
+          }
+        : await createPromptBuilder({
+            anthropicKey: process.env.ANTHROPIC_API_KEY,
+            falKey: process.env.FAL_KEY,
+          }).build(brief, count)
     logger.info('prompt plan ready', { source: plan.source, variations: plan.variations.length })
 
     // Где надо сохранить комнату, там рисует модель, которая это умеет. Прежняя на той же кухне
@@ -413,15 +404,40 @@ export const generateConcept = task({
       ? `data:${source.contentType};base64,${source.body.toString('base64')}`
       : undefined
 
+    async function cropSourceObject() {
+      if (
+        !payload.sourceObject ||
+        !source ||
+        base ||
+        payload.sourceObject.photoRevision !== room.photoRevision
+      ) {
+        throw new Error('Фото изменилось. Выделите предмет заново на текущем фото.')
+      }
+      const meta = await sharp(source.body).metadata()
+      if (!meta.width || !meta.height) throw new Error('Исходное фото не читается')
+      const body = await cropObject(
+        Buffer.from(source.body),
+        meta.width,
+        meta.height,
+        { label: 'original furniture', bbox: payload.sourceObject.box },
+        null,
+      )
+      return { body, contentType: 'image/jpeg' }
+    }
+
     // Кадр самого предмета, если его приложили: без него модель рисует похожую мебель
-    const attached = payload.objectKey
-      ? await readObject(payload.objectKey).catch(() => null)
-      : payload.objectId && payload.baseConceptId
-        ? await cropConceptObject(payload.objectId, payload.baseConceptId).catch((error) => {
-            logger.warn('object crop failed', { error: String(error) })
-            return null
-          })
-        : null
+    const attached =
+      furniturePhoto ??
+      (payload.sourceObject
+        ? await cropSourceObject()
+        : payload.objectKey
+          ? await readObject(payload.objectKey).catch(() => null)
+          : payload.objectId && payload.baseConceptId
+            ? await cropConceptObject(payload.objectId, payload.baseConceptId).catch((error) => {
+                logger.warn('object crop failed', { error: String(error) })
+                return null
+              })
+            : null)
     const objectUrls = attached
       ? [`data:${attached.contentType};base64,${attached.body.toString('base64')}`]
       : []
@@ -515,7 +531,7 @@ export const generateConcept = task({
             if (!anchoredResult) throw new Error('нет результата варианта')
             result = await anchoredResult
           } else if (payload.editSteps) {
-            result = await renderSteps(
+            result = await renderEditSteps(
               engine,
               payload.editSteps,
               imageUrl,
@@ -536,6 +552,22 @@ export const generateConcept = task({
           let qualityReview = await (conceptIndex === 0 && anchorReview
             ? anchorReview
             : reviewRenderedImage(result, conceptIndex))
+          if (payload.referencePhoto) {
+            qualityReview = {
+              ...qualityReview,
+              imageReview: 'limited',
+              sourceComparison:
+                qualityReview.sourceComparison === 'unavailable' ? 'unavailable' : 'limited',
+              imageReviewLimitations: [
+                ...(qualityReview.imageReviewLimitations ?? []),
+                {
+                  detail:
+                    'Сохранение предмета по отдельному фото сверьте вручную. Автосверка сравнивает результат с фото комнаты, а не с этим образцом.',
+                  confidence: 0,
+                },
+              ],
+            }
+          }
           logger.info('concept quality review', {
             conceptId: concept.id,
             status: qualityReview.status,

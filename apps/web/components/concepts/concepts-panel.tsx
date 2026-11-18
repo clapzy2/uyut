@@ -1,5 +1,6 @@
 'use client'
 
+import type { SourceObject } from '@uyut/ai'
 import type { ConceptBatchKind, ConceptQualityReview, ProjectRole } from '@uyut/db'
 import { Button, cn, toast } from '@uyut/ui'
 import { motion, useReducedMotion } from 'motion/react'
@@ -28,6 +29,8 @@ import {
   theirVote,
 } from '@/lib/concepts/votes'
 import { type RunProgressMeta, useRunWatch } from '@/lib/queue/use-run-watch'
+import { FurniturePhotoUpload } from './furniture-photo-upload'
+import { SourceObjectPicker } from './source-object-picker'
 
 export type ConceptItem = {
   id: string
@@ -291,6 +294,8 @@ function theirChange(
 export function ConceptsPanel({
   roomId,
   hasPhoto,
+  sourcePhotoUrl,
+  sourcePhotoRevision = 0,
   keepsFurniture,
   onboarded,
   projectId,
@@ -305,6 +310,8 @@ export function ConceptsPanel({
 }: {
   roomId: string
   hasPhoto: boolean
+  sourcePhotoUrl?: string | null
+  sourcePhotoRevision?: number
   /** Комната отмечена как «оставить как есть»: от этого зависит, что мы обещаем человеку */
   keepsFurniture: boolean
   onboarded: boolean
@@ -326,6 +333,13 @@ export function ConceptsPanel({
   /** Второй человек в проекте, если он есть: его имя в метках и вкладках */
   other: { name: string } | null
 }) {
+  const [referenceMode, setReferenceMode] = useState<'photo' | 'crop'>('photo')
+  const [referencePhoto, setReferencePhoto] = useState<{
+    token: string
+    photoRevision: number
+  } | null>(null)
+  const [referenceUploading, setReferenceUploading] = useState(false)
+  const [sourceObject, setSourceObject] = useState<SourceObject | null>(null)
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -410,11 +424,18 @@ export function ConceptsPanel({
   const recentItem = recent ? current.find((item) => item.id === recent.conceptId) : null
 
   function generate() {
-    if (pending || working || needsStatusCheck) return
+    if (pending || working || needsStatusCheck || referenceUploading) return
     setError(null)
     startTransition(async () => {
       try {
-        const result = await requestConcepts(roomId)
+        const result = await requestConcepts(
+          roomId,
+          referencePhoto?.photoRevision === sourcePhotoRevision
+            ? { referencePhotoToken: referencePhoto.token }
+            : sourceObject?.photoRevision === sourcePhotoRevision
+              ? { sourceObject }
+              : {},
+        )
         if (!result.ok) {
           if (result.checkStatus) setNeedsStatusCheck(true)
           setError(result.error)
@@ -745,6 +766,52 @@ export function ConceptsPanel({
 
       {canGenerate ? (
         <>
+          {keepsFurniture && sourcePhotoUrl ? (
+            <div className="space-y-3">
+              <fieldset disabled={referenceUploading || pending}>
+                <legend className="mb-2 text-sm">Образец мебели для переноса</legend>
+                {(['photo', 'crop'] as const).map((mode) => (
+                  <label key={mode} className="mr-4 inline-flex items-center gap-2 py-2 text-sm">
+                    <input
+                      type="radio"
+                      name={`reference-${roomId}`}
+                      checked={referenceMode === mode}
+                      onChange={() => {
+                        setReferenceMode(mode)
+                        setReferencePhoto(null)
+                        setSourceObject(null)
+                      }}
+                    />
+                    {mode === 'photo' ? 'Отдельное фото предмета' : 'Выделить на фото комнаты'}
+                  </label>
+                ))}
+              </fieldset>
+              {referenceMode === 'photo' ? (
+                <FurniturePhotoUpload
+                  key={sourcePhotoRevision}
+                  roomId={roomId}
+                  photoRevision={sourcePhotoRevision}
+                  onChange={(token) =>
+                    setReferencePhoto(token ? { token, photoRevision: sourcePhotoRevision } : null)
+                  }
+                  onPendingChange={setReferenceUploading}
+                />
+              ) : (
+                <SourceObjectPicker
+                  key={sourcePhotoRevision}
+                  photoUrl={sourcePhotoUrl}
+                  photoRevision={sourcePhotoRevision}
+                  value={sourceObject?.photoRevision === sourcePhotoRevision ? sourceObject : null}
+                  onChange={setSourceObject}
+                />
+              )}
+              {referencePhoto || sourceObject ? (
+                <p className="text-sm text-ink-2">
+                  Перенос: один вариант, до четырёх обработок по шагам. Это новый платный запуск.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <FormError message={error ?? undefined} />
           <div className="flex flex-wrap items-center gap-3">
             {needsStatusCheck || working ? (
@@ -752,19 +819,30 @@ export function ConceptsPanel({
                 {pending ? 'Проверяем…' : 'Проверить статус генерации'}
               </Button>
             ) : (
-              <Button type="button" onClick={generate} pending={pending}>
-                {items.length === 0
-                  ? 'Сгенерировать концепты'
-                  : keepsFurniture
-                    ? 'Сгенерировать ещё 3'
-                    : 'Сгенерировать ещё 5'}
+              <Button
+                type="button"
+                onClick={generate}
+                pending={pending}
+                disabled={referenceUploading}
+              >
+                {sourceObject?.photoRevision === sourcePhotoRevision ||
+                referencePhoto?.photoRevision === sourcePhotoRevision
+                  ? 'Перенести выделенный предмет - 1 вариант'
+                  : items.length === 0
+                    ? 'Сгенерировать концепты'
+                    : keepsFurniture
+                      ? 'Сгенерировать ещё 3'
+                      : 'Сгенерировать ещё 5'}
               </Button>
             )}
             {items.length === 0 && !needsStatusCheck && !working ? (
               <span className="text-sm text-ink-2">
-                {keepsFurniture
-                  ? 'три варианта, около минуты'
-                  : 'пять вариантов, около тридцати секунд'}
+                {sourceObject?.photoRevision === sourcePhotoRevision ||
+                referencePhoto?.photoRevision === sourcePhotoRevision
+                  ? 'один вариант, до четырёх последовательных обработок'
+                  : keepsFurniture
+                    ? 'три варианта, около минуты'
+                    : 'пять вариантов, около тридцати секунд'}
               </span>
             ) : null}
           </div>
