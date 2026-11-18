@@ -6,7 +6,6 @@ export {
   type ArchitectureBatchPlan,
   renderArchitectureAnchoredBatch,
 } from './architecture-anchor'
-
 export {
   BRIEF_SECTIONS,
   BRIEF_SYSTEM_PROMPT,
@@ -135,6 +134,7 @@ export {
 export { planMeasurementTextItems, validatePlanMeasurement } from './floor-plan-measurements'
 export { planRoomSchedule, planTabularScheduleEvidence } from './floor-plan-schedule'
 export { isLayoutCorrectionImprovement, layoutCorrectionPrompt } from './layout-correction'
+export { type SourceObject, sourceMovePlanIssue, validSourceObject } from './object-reference'
 export { OBJECT_REVIEW_PROMPT, parseObjectReview, reviewDetectedObjects } from './object-review'
 export {
   ARCHITECTURE_ANCHOR_INSTRUCTION,

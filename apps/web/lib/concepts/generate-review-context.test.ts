@@ -9,7 +9,9 @@ const mocks = vi.hoisted(() => ({
   review: vi.fn(),
   correction: vi.fn(),
   read: vi.fn(),
+  crop: vi.fn(),
   rows: [] as Array<Record<string, unknown>>,
+  saved: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock('@trigger.dev/sdk', () => ({
@@ -21,7 +23,7 @@ vi.mock('../../../../jobs/src/lib/db', () => ({ db: mocks.db }))
 vi.mock('../../../../jobs/src/lib/env', () => ({ requireEnv: () => 'test' }))
 vi.mock('../../../../jobs/src/lib/s3', () => ({ readObject: mocks.read, putObject: vi.fn() }))
 vi.mock('../../../../jobs/src/segment-and-match', () => ({
-  cropObject: vi.fn(),
+  cropObject: mocks.crop,
   segmentAndMatch: { trigger: vi.fn() },
 }))
 vi.mock('@uyut/ai', async (original) => ({
@@ -84,22 +86,126 @@ function setupDatabase(hasPhoto: boolean) {
         },
       }),
     }),
-    update: () => ({ set: () => ({ where: async () => undefined }) }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => {
+        mocks.saved.push(values)
+        return { where: async () => undefined }
+      },
+    }),
   })
+  return row
 }
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  mocks.saved = []
   const body = await sharp({ create: { width: 4, height: 4, channels: 3, background: 'white' } })
     .png()
     .toBuffer()
   mocks.render.mockResolvedValue({ body, contentType: 'image/png', seed: 1 })
   mocks.read.mockResolvedValue({ body, contentType: 'image/png' })
+  mocks.crop.mockResolvedValue(body)
   mocks.review.mockResolvedValue(checked)
   mocks.correction.mockReturnValue(null)
 })
 
 describe('пожелания конкретного варианта в автосверке', () => {
+  it('передаёт вырезку исходного фото в шаг установки без концепта-основы', async () => {
+    const row = setupDatabase(true)
+    Object.assign(row.room, { condition: 'keep', photoRevision: 3 })
+    expect(
+      await run({
+        ...payload,
+        count: 1,
+        sourceObject: { photoRevision: 3, box: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 } },
+        editSteps: [
+          { titleRu: 'Убрать', prompt: 'Remove cabinet', needsObject: false },
+          { titleRu: 'Поставить', prompt: 'Place cabinet below window', needsObject: true },
+        ],
+      }),
+    ).toMatchObject({ done: 1, renderRequests: 2 })
+    expect(mocks.crop).toHaveBeenCalledTimes(1)
+    expect(mocks.render.mock.calls.filter(([request]) => request.referenceUrls).length).toBe(1)
+    expect(
+      mocks.render.mock.calls
+        .filter(([request]) => request.prompt.includes('Remove cabinet'))
+        .every(([request]) => !request.referenceUrls),
+    ).toBe(true)
+  })
+  it('прикладывает отдельное фото предмета, сохраняя фото комнаты основой', async () => {
+    const row = setupDatabase(true)
+    Object.assign(row.room, { condition: 'keep', photoRevision: 3 })
+    const key = `projects/${row.project.id}/rooms/${row.room.id}/furniture-references/reference.webp`
+    const furniture = await sharp({
+      create: { width: 4, height: 4, channels: 3, background: 'red' },
+    })
+      .png()
+      .toBuffer()
+    const roomImage = (await mocks.read()).body
+    mocks.read.mockImplementation(async (path: string) => ({
+      body: path === key ? furniture : roomImage,
+      contentType: 'image/png',
+    }))
+    expect(
+      await run({
+        ...payload,
+        count: 1,
+        referencePhoto: { key, photoRevision: 3 },
+        editSteps: [
+          { titleRu: 'Убрать', prompt: 'Remove cabinet', needsObject: false },
+          { titleRu: 'Поставить', prompt: 'Place cabinet under window', needsObject: true },
+        ],
+      }),
+    ).toMatchObject({ done: 1, renderRequests: 2 })
+    expect(mocks.crop).not.toHaveBeenCalled()
+    // Проверка комнаты не доказывает совпадение с отдельным предметным снимком.
+    expect(mocks.review).toHaveBeenCalledTimes(1)
+    expect(mocks.saved.find((value) => value.status === 'ready')?.qualityReview).toMatchObject({
+      imageReview: 'limited',
+      sourceComparison: 'limited',
+      imageReviewLimitations: [
+        expect.objectContaining({ detail: expect.stringContaining('отдельному фото') }),
+      ],
+    })
+    expect(mocks.render.mock.calls[0]?.[0].imageUrl).toBe(
+      `data:image/png;base64,${roomImage.toString('base64')}`,
+    )
+    expect(mocks.render.mock.calls[1]?.[0].referenceUrls).toEqual([
+      `data:image/png;base64,${furniture.toString('base64')}`,
+    ])
+  })
+  it.each(['old-revision', 'foreign-room', 'lost-file'])(
+    'не рисует при непригодном втором фото: %s',
+    async (reason) => {
+      const row = setupDatabase(true)
+      Object.assign(row.room, { condition: 'keep', photoRevision: 4 })
+      const key =
+        reason === 'foreign-room'
+          ? 'projects/other/rooms/other/furniture-references/reference.webp'
+          : `projects/${row.project.id}/rooms/${row.room.id}/furniture-references/reference.webp`
+      if (reason === 'lost-file') mocks.read.mockRejectedValue(new Error('missing file'))
+      await expect(
+        run({
+          ...payload,
+          referencePhoto: { key, photoRevision: reason === 'old-revision' ? 3 : 4 },
+          editSteps: [{ titleRu: 'Поставить', prompt: 'Place cabinet', needsObject: true }],
+        }),
+      ).rejects.toThrow()
+      expect(mocks.render).not.toHaveBeenCalled()
+    },
+  )
+  it('не рендерит перенос по выделению со старого фото', async () => {
+    const row = setupDatabase(true)
+    Object.assign(row.room, { condition: 'keep', photoRevision: 4 })
+    await expect(
+      run({
+        ...payload,
+        sourceObject: { photoRevision: 3, box: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 } },
+      }),
+    ).rejects.toThrow('Фото изменилось')
+    expect(mocks.crop).not.toHaveBeenCalled()
+    expect(mocks.render).not.toHaveBeenCalled()
+  })
   it.each([
     [true, 0],
     [true, 1],

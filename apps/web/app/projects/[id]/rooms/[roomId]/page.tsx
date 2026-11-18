@@ -240,6 +240,8 @@ export default async function RoomPage({ params }: { params: Params }) {
               roomId={room.id}
               projectId={room.projectId}
               hasPhoto={Boolean(room.photoUrl)}
+              sourcePhotoUrl={photoUrl}
+              sourcePhotoRevision={room.photoRevision}
               keepsFurniture={room.condition === 'keep'}
               onboarded={Boolean(room.project.onboardedAt)}
               canGenerate={isOwner}
