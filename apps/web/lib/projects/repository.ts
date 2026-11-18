@@ -568,7 +568,11 @@ export async function setRoomPhoto(
   await getDb().transaction(async (tx) => {
     const replaced = await tx
       .update(rooms)
-      .set({ photoUrl: key, photoRevision: sql`${rooms.photoRevision} + 1` })
+      .set({
+        photoUrl: key,
+        photoRevision: sql`${rooms.photoRevision} + 1`,
+        furnitureReference: null,
+      })
       .where(
         and(
           eq(rooms.id, room.id),

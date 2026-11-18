@@ -176,6 +176,13 @@
       "when": 1793058962904,
       "tag": "0024_misty_scrambler",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1795014560708,
+      "tag": "0025_room_furniture_reference",
+      "breakpoints": true
     }
   ]
 }

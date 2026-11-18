@@ -13,6 +13,7 @@ import {
   requestConcepts,
   setConceptLike,
 } from '@/actions/concepts'
+import type { FurnitureReferenceView } from '@/actions/furniture-reference'
 import { PresenceChip } from '@/components/collaboration/presence-chip'
 import { DuoCard } from '@/components/concepts/duo-card'
 import { EmptyArt } from '@/components/empty-art'
@@ -296,6 +297,7 @@ export function ConceptsPanel({
   hasPhoto,
   sourcePhotoUrl,
   sourcePhotoRevision = 0,
+  initialFurnitureReference = null,
   keepsFurniture,
   onboarded,
   projectId,
@@ -312,6 +314,7 @@ export function ConceptsPanel({
   hasPhoto: boolean
   sourcePhotoUrl?: string | null
   sourcePhotoRevision?: number
+  initialFurnitureReference?: FurnitureReferenceView | null
   /** Комната отмечена как «оставить как есть»: от этого зависит, что мы обещаем человеку */
   keepsFurniture: boolean
   onboarded: boolean
@@ -337,9 +340,29 @@ export function ConceptsPanel({
   const [referencePhoto, setReferencePhoto] = useState<{
     token: string
     photoRevision: number
-  } | null>(null)
+  } | null>(
+    initialFurnitureReference
+      ? { token: initialFurnitureReference.token, photoRevision: sourcePhotoRevision }
+      : null,
+  )
   const [referenceUploading, setReferenceUploading] = useState(false)
+  const savedReferenceToken = initialFurnitureReference?.token
+  useEffect(() => {
+    setReferencePhoto(
+      savedReferenceToken
+        ? { token: savedReferenceToken, photoRevision: sourcePhotoRevision }
+        : null,
+    )
+  }, [savedReferenceToken, sourcePhotoRevision])
   const [sourceObject, setSourceObject] = useState<SourceObject | null>(null)
+  const selectedReferencePhoto =
+    referenceMode === 'photo' && referencePhoto?.photoRevision === sourcePhotoRevision
+      ? referencePhoto
+      : null
+  const selectedSourceObject =
+    referenceMode === 'crop' && sourceObject?.photoRevision === sourcePhotoRevision
+      ? sourceObject
+      : null
   const router = useRouter()
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
@@ -430,10 +453,10 @@ export function ConceptsPanel({
       try {
         const result = await requestConcepts(
           roomId,
-          referencePhoto?.photoRevision === sourcePhotoRevision
-            ? { referencePhotoToken: referencePhoto.token }
-            : sourceObject?.photoRevision === sourcePhotoRevision
-              ? { sourceObject }
+          selectedReferencePhoto
+            ? { referencePhotoToken: selectedReferencePhoto.token }
+            : selectedSourceObject
+              ? { sourceObject: selectedSourceObject }
               : {},
         )
         if (!result.ok) {
@@ -778,7 +801,6 @@ export function ConceptsPanel({
                       checked={referenceMode === mode}
                       onChange={() => {
                         setReferenceMode(mode)
-                        setReferencePhoto(null)
                         setSourceObject(null)
                       }}
                     />
@@ -786,26 +808,28 @@ export function ConceptsPanel({
                   </label>
                 ))}
               </fieldset>
-              {referenceMode === 'photo' ? (
+              <div hidden={referenceMode !== 'photo'}>
                 <FurniturePhotoUpload
                   key={sourcePhotoRevision}
                   roomId={roomId}
                   photoRevision={sourcePhotoRevision}
+                  initialReference={initialFurnitureReference}
                   onChange={(token) =>
                     setReferencePhoto(token ? { token, photoRevision: sourcePhotoRevision } : null)
                   }
                   onPendingChange={setReferenceUploading}
                 />
-              ) : (
+              </div>
+              {referenceMode === 'crop' ? (
                 <SourceObjectPicker
                   key={sourcePhotoRevision}
                   photoUrl={sourcePhotoUrl}
                   photoRevision={sourcePhotoRevision}
-                  value={sourceObject?.photoRevision === sourcePhotoRevision ? sourceObject : null}
+                  value={selectedSourceObject}
                   onChange={setSourceObject}
                 />
-              )}
-              {referencePhoto || sourceObject ? (
+              ) : null}
+              {selectedReferencePhoto || selectedSourceObject ? (
                 <p className="text-sm text-ink-2">
                   Перенос: один вариант, до четырёх обработок по шагам. Это новый платный запуск.
                 </p>
@@ -825,8 +849,7 @@ export function ConceptsPanel({
                 pending={pending}
                 disabled={referenceUploading}
               >
-                {sourceObject?.photoRevision === sourcePhotoRevision ||
-                referencePhoto?.photoRevision === sourcePhotoRevision
+                {selectedSourceObject || selectedReferencePhoto
                   ? 'Перенести выделенный предмет - 1 вариант'
                   : items.length === 0
                     ? 'Сгенерировать концепты'
@@ -837,8 +860,7 @@ export function ConceptsPanel({
             )}
             {items.length === 0 && !needsStatusCheck && !working ? (
               <span className="text-sm text-ink-2">
-                {sourceObject?.photoRevision === sourcePhotoRevision ||
-                referencePhoto?.photoRevision === sourcePhotoRevision
+                {selectedSourceObject || selectedReferencePhoto
                   ? 'один вариант, до четырёх последовательных обработок'
                   : keepsFurniture
                     ? 'три варианта, около минуты'

@@ -269,6 +269,7 @@ export const generateConcept = task({
         !room.photoUrl ||
         room.condition !== 'keep' ||
         payload.referencePhoto.photoRevision !== room.photoRevision ||
+        payload.referencePhoto.key !== room.furnitureReference?.key ||
         !payload.referencePhoto.key.startsWith(prefix) ||
         !payload.referencePhoto.key.endsWith('.webp') ||
         payload.editSteps?.filter((step) => step.needsObject).length !== 1 ||

@@ -60,7 +60,7 @@ const plan = {
 beforeEach(() => {
   vi.resetAllMocks()
   mocks.session.mockResolvedValue({ user: { id: 'owner' } })
-  mocks.room.mockResolvedValue(room)
+  mocks.room.mockResolvedValue({ ...room, furnitureReference: { key, photoRevision: 3 } })
   mocks.claim.mockResolvedValue(true)
   mocks.clear.mockResolvedValue(undefined)
   mocks.limit.mockResolvedValue({ success: true })
@@ -80,6 +80,30 @@ describe('start with original furniture photo', () => {
     const referencePhotoToken = signFurnitureReference('test-secret', other, otherKey)
     expect(await requestConcepts(room.id, { referencePhotoToken })).toMatchObject({ ok: false })
     expect(mocks.claim).not.toHaveBeenCalled()
+    expect(mocks.plan).not.toHaveBeenCalled()
+    expect(mocks.trigger).not.toHaveBeenCalled()
+  })
+
+  it.each([null, { key: key.replace('30000000', '40000000'), photoRevision: 3 }])(
+    'rejects a detached or replaced reference before any model call',
+    async (furnitureReference) => {
+      mocks.room.mockResolvedValue({ ...room, furnitureReference })
+      const referencePhotoToken = signFurnitureReference('test-secret', context, key)
+      expect(await requestConcepts(room.id, { referencePhotoToken })).toMatchObject({ ok: false })
+      expect(mocks.claim).not.toHaveBeenCalled()
+      expect(mocks.plan).not.toHaveBeenCalled()
+      expect(mocks.trigger).not.toHaveBeenCalled()
+    },
+  )
+
+  it('rechecks the reference after claim before paid preparation', async () => {
+    mocks.room
+      .mockResolvedValueOnce({ ...room, furnitureReference: { key, photoRevision: 3 } })
+      .mockResolvedValueOnce({ ...room, furnitureReference: null })
+    const referencePhotoToken = signFurnitureReference('test-secret', context, key)
+    expect(await requestConcepts(room.id, { referencePhotoToken })).toMatchObject({ ok: false })
+    expect(mocks.clear).toHaveBeenCalledWith(room.id, expect.stringContaining('pending:'))
+    expect(mocks.limit).not.toHaveBeenCalled()
     expect(mocks.plan).not.toHaveBeenCalled()
     expect(mocks.trigger).not.toHaveBeenCalled()
   })

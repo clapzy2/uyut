@@ -169,6 +169,7 @@ export async function requestConcepts(
     if (
       request.referencePhotoToken &&
       (!referencePhoto ||
+        referencePhoto.key !== room.furnitureReference?.key ||
         sourceObject ||
         baseConceptId ||
         room.condition !== 'keep' ||
@@ -202,6 +203,27 @@ export async function requestConcepts(
         ok: false,
         error: 'Эта комната уже считается. Дождитесь готовых вариантов.',
         checkStatus: true,
+      }
+    }
+    if (sourceTransfer) {
+      try {
+        const current = await getRoom(userId, room.id)
+        requireOwner(current.role)
+        if (
+          current.photoRevision !== room.photoRevision ||
+          current.photoUrl !== room.photoUrl ||
+          current.condition !== 'keep' ||
+          (referencePhoto && current.furnitureReference?.key !== referencePhoto.key)
+        ) {
+          await clearGenerationRun(room.id, `pending:${batchId}`)
+          return {
+            ok: false,
+            error: 'Фото или образец изменились. Обновите страницу перед переносом.',
+          }
+        }
+      } catch (error) {
+        await clearGenerationRun(room.id, `pending:${batchId}`)
+        throw error
       }
     }
     if (!(await allowGeneration(userId, room.id, batchId))) {
