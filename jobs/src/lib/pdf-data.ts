@@ -703,7 +703,7 @@ export async function buildPdfData(input: {
         .filter(Boolean)
         .join(' · '),
       image: await pdfImageFromSources(
-        [offer.variant?.imageUrl, ...orderedImages(row.product.images)],
+        [offer.variant?.imageUrl, ...orderedImages(row.product.images, row.product)],
         360,
       ),
       affiliateUrl: offer.variant?.affiliateUrl ?? row.product.affiliateUrl,

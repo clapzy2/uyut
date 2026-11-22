@@ -128,6 +128,7 @@ export async function getShoppingList(
     rows.map(async ({ item, product, roomName, measurements }): Promise<ShoppingItemView> => {
       const sizeReading = effectiveSizeReading(item, product)
       const offer = shoppingOffer(product, item.selectedVariant)
+      const images = orderedImages(product.images, product)
       return {
         id: item.id,
         catalogItemId: product.id,
@@ -138,8 +139,10 @@ export async function getShoppingList(
         priceKopecks: product.priceKopecks,
         affiliateUrl: offer.variant?.affiliateUrl ?? product.affiliateUrl,
         adDisclosure: product.attributes?.adDisclosure?.trim() || null,
-        imageUrl: await productImage(offer.variant?.imageUrl ?? orderedImages(product.images)[0]),
-        imageFallbackUrl: await productImage(orderedImages(product.images)[1]),
+        imageUrl: await productImage(offer.variant?.imageUrl ?? images[0]),
+        imageFallbackUrl: await productImage(
+          images.find((url) => url !== (offer.variant?.imageUrl ?? images[0])),
+        ),
         inStock: product.inStock,
         catalogNotice: offer.catalogNotice,
         quantity: item.quantity,

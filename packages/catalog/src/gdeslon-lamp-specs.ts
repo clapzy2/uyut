@@ -2,6 +2,7 @@ type LampSpec = {
   externalId: string
   title: string
   sourceUrl: string
+  imageUrl?: string
   baseCm?: { diameter: number } | { width: number; depth: number }
   dimensionsCm: { height?: number; width?: number; depth?: number }
 }
@@ -348,6 +349,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1573868-1303370921062868000',
     title: 'Торшер Globo Gianna 24099SB цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://globo-lighting.ba/proizvod/podna-lampa-gianna/',
+    imageUrl:
+      'https://voltonov.ru/system/product_images/attachments/64a2/8b82/cb77/7d36/a57c/c833/main/globo-24099sb.jpg',
     dimensionsCm: { width: 20, depth: 47.7, height: 139 },
   },
   {

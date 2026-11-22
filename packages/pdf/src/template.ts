@@ -324,11 +324,18 @@ function roomPlan(plan: RoomLayout | null): string {
   const width = 400
   const scale = width / plan.widthCm
   const height = Math.max(1, Math.round(plan.depthCm * scale))
-  const zonePoints = plan.keepClearZones.flatMap((zone) => zone.polygon)
-  const left = Math.min(0, ...zonePoints.map((point) => point.xCm * scale))
-  const top = Math.min(0, ...zonePoints.map((point) => point.yCm * scale))
-  const right = Math.max(width, ...zonePoints.map((point) => point.xCm * scale))
-  const bottom = Math.max(height, ...zonePoints.map((point) => point.yCm * scale))
+  // Оставляем место для штриха и круглых концов проёмов толщиной 5 единиц.
+  const padding = 3
+  const points = [
+    ...(plan.floorPolygon ?? []),
+    ...(plan.floorLevel?.surfaces.flatMap((surface) => surface.floor) ?? []),
+    ...plan.keepClearZones.flatMap((zone) => zone.polygon),
+    ...plan.floorReservations.flatMap(({ start, end }) => [start, end]),
+  ]
+  const left = Math.min(0, ...points.map((point) => point.xCm * scale)) - padding
+  const top = Math.min(0, ...points.map((point) => point.yCm * scale)) - padding
+  const right = Math.max(width, ...points.map((point) => point.xCm * scale)) + padding
+  const bottom = Math.max(height, ...points.map((point) => point.yCm * scale)) + padding
   // В прямоугольнике только номер: название не помещается в шкаф глубиной 60 см
   // и на печати наезжает на соседей. Что под каким номером, говорит список ниже.
   const boxes = plan.placed
