@@ -130,6 +130,7 @@ const CSS = `
   .shop .item { display: grid; grid-template-columns: 17mm 1fr auto auto; gap: 5mm; align-items: center; padding: 3mm 0; border-bottom: 1px solid #ddd4c1; break-inside: avoid; }
   .shop .item:first-child { border-top: 1px solid #262220; }
   .shop .img { width: 17mm; height: 17mm; overflow: hidden; background: #efe9dc; border: 1px solid #ddd4c1; }
+  .shop .img-missing { display: grid; place-items: center; text-align: center; font-size: 7pt; color: #6d6656; }
   .shop .title { font-size: 10pt; }
   .shop .title span { display: block; font-size: 8pt; color: #6d6656; margin-top: 0.5mm; }
   .shop .qty { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 8.5pt; color: #6d6656; }
@@ -917,7 +918,7 @@ function shoppingGroup(group: PdfShoppingGroup): string {
                 ? `<span><a href="${esc(item.affiliateUrl)}">Открыть выбранный товар в магазине</a></span>`
                 : ''
             return `<div class="item">
-              ${img(item.image, 'img')}
+              ${item.image ? img(item.image, 'img') : '<div class="img img-missing">Фото недоступно</div>'}
               <div class="title">${esc(item.title)}${item.meta ? `<span>${esc(item.meta)}</span>` : ''}${productLink}</div>
               <span class="qty">× ${item.quantity}</span>
               <span class="price">${formatPrice(item.totalKopecks)}</span>

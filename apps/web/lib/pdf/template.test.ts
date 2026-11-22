@@ -528,6 +528,7 @@ describe('project PDF template', () => {
     expect(html).toContain('Квартира на Мира &lt;тест&gt;')
     expect(html).toContain('Гостиная')
     expect(html).toContain('Что купить')
+    expect(html).toContain('Фото недоступно')
     expect(html).toContain('Сколько это стоит')
     expect(html).toContain('Задание для мастеров')
     expect(html).toContain('Окрасить стены в два слоя.')
