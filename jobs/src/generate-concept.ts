@@ -557,6 +557,9 @@ export const generateConcept = task({
             qualityReview = {
               ...qualityReview,
               furnitureIdentity: 'manual',
+              ...(payload.referencePhoto
+                ? { furnitureReferenceFile: payload.referencePhoto.key.split('/').at(-1) }
+                : {}),
             }
           }
           logger.info('concept quality review', {

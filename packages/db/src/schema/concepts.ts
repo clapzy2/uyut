@@ -34,6 +34,8 @@ export type ConceptQualityReview = {
   sourceComparison?: 'verified' | 'limited' | 'unavailable'
   /** The room check does not establish whether the same article was moved. */
   furnitureIdentity?: 'manual'
+  /** Immutable filename of the separately uploaded sample used for the render. */
+  furnitureReferenceFile?: string
   /** Calls beyond the initial result-only review, including failed comparison attempts. */
   additionalReviewRequests?: 0 | 1 | 2
   /** Exact plan/render inputs used by this review; absent on legacy or image-only reviews. */
