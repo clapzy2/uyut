@@ -377,7 +377,7 @@ export const generateConcept = task({
           aiModel: modelId,
           sourcePhotoRevision: base ? base.sourcePhotoRevision : room.photoRevision,
           baseConceptId: base?.id ?? null,
-          editRequest: base ? (payload.editRequest ?? null) : null,
+          editRequest: base || payload.editSteps ? (payload.editRequest ?? null) : null,
           title: payload.duo?.variations[index]?.title ?? null,
           // У вариантов на двоих подпись уже есть: это идея из предложения модели
           note: payload.duo?.variations[index]?.idea ?? null,
@@ -553,20 +553,10 @@ export const generateConcept = task({
           let qualityReview = await (conceptIndex === 0 && anchorReview
             ? anchorReview
             : reviewRenderedImage(result, conceptIndex))
-          if (payload.referencePhoto) {
+          if (payload.editSteps?.some((step) => step.needsObject)) {
             qualityReview = {
               ...qualityReview,
-              imageReview: 'limited',
-              sourceComparison:
-                qualityReview.sourceComparison === 'unavailable' ? 'unavailable' : 'limited',
-              imageReviewLimitations: [
-                ...(qualityReview.imageReviewLimitations ?? []),
-                {
-                  detail:
-                    'Сохранение предмета по отдельному фото сверьте вручную. Автосверка сравнивает результат с фото комнаты, а не с этим образцом.',
-                  confidence: 0,
-                },
-              ],
+              furnitureIdentity: 'manual',
             }
           }
           logger.info('concept quality review', {

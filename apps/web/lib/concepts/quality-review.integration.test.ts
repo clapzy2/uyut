@@ -6,6 +6,7 @@ import {
   concepts,
   type PlanGeometry,
   projects,
+  rooms,
   users,
 } from '@uyut/db'
 import { eq, inArray } from 'drizzle-orm'
@@ -119,6 +120,40 @@ describe('отчёт качества в карточке концепта', () 
       .returning()
     if (!concept) throw new Error('No concept')
     expect((await getConceptPage(owner, concept.id)).concept.qualityReview).toBeNull()
+  })
+
+  it('показывает исходное фото только пока сохранена ревизия, использованная для варианта', async () => {
+    const db = getDb()
+    const room = await createRoom(owner, projectId, { name: 'Гостиная', kind: 'living' })
+    const original = `projects/${projectId}/rooms/${room.id}/source.webp`
+    await db
+      .update(rooms)
+      .set({ photoUrl: original, photoRevision: 3 })
+      .where(eq(rooms.id, room.id))
+    const [concept] = await db
+      .insert(concepts)
+      .values({
+        roomId: room.id,
+        batchId: randomUUID(),
+        orderIndex: 0,
+        prompt: 'test',
+        aiModel: 'test',
+        status: 'ready',
+        sourcePhotoRevision: 3,
+        editRequest: 'Перенести комод',
+      })
+      .returning()
+    if (!concept) throw new Error('No concept')
+    const before = (await getConceptPage(owner, concept.id)).concept
+    expect(before.sourcePhotoSrc).toContain('/source.webp')
+    expect(before.editRequest).toBe('Перенести комод')
+    await db
+      .update(rooms)
+      .set({ photoUrl: original.replace('source.webp', 'new.webp'), photoRevision: 4 })
+      .where(eq(rooms.id, room.id))
+    const after = (await getConceptPage(owner, concept.id)).concept
+    expect(after.fromPreviousPhoto).toBe(true)
+    expect(after.sourcePhotoSrc).toBeUndefined()
   })
 
   it('после переноса окна сохраняет описание, но помечает автосверку как прежнюю', async () => {

@@ -67,12 +67,12 @@ describe('перенос исходного предмета', () => {
       { model: 'test', render },
       [
         { prompt: 'Remove cabinet', needsObject: false },
-        { prompt: 'Place cabinet under window', needsObject: true },
+        { prompt: 'Place cabinet under window; keep its handles and drawers', needsObject: true },
       ],
       'source',
       ['original-crop'],
       '4:3',
-      'Ручки и ящики сохранить',
+      'Убрать комод справа. Поставить этот же комод под подоконником. Ручки и ящики сохранить.',
     )
     expect(render.mock.calls[0]?.[0].referenceUrls).toBeUndefined()
     expect(render.mock.calls[1]?.[0]).toMatchObject({
@@ -80,6 +80,20 @@ describe('перенос исходного предмета', () => {
       referenceUrls: ['original-crop'],
     })
     expect(render.mock.calls[1]?.[0].prompt).toContain('drawer and door arrangement')
-    expect(render.mock.calls[1]?.[0].prompt).toContain('Ручки и ящики сохранить')
+    expect(render.mock.calls[0]?.[0].prompt).not.toMatch(/under window|под подоконником/i)
+    expect(render.mock.calls[1]?.[0].prompt).toContain('keep its handles and drawers')
+  })
+
+  it('передаёт полный запрос в одиночную правку без переноса', async () => {
+    const render = vi.fn().mockResolvedValue({ body: Buffer.alloc(0), contentType: 'image/png' })
+    await renderEditSteps(
+      { model: 'test', render },
+      [{ prompt: 'Recolour the bedspread' }],
+      'source',
+      [],
+      '4:3',
+      'Подушки оставь тёмно-синими',
+    )
+    expect(render.mock.calls[0]?.[0].prompt).toContain('Подушки оставь тёмно-синими')
   })
 })

@@ -107,6 +107,9 @@ export type ConceptPageData = {
     orderIndex: number
     batchId: string
     fromPreviousPhoto: boolean
+    sourcePhotoSrc?: string
+    checkFurnitureAgainstSource?: boolean
+    editRequest?: string
   }
   room: {
     id: string
@@ -322,6 +325,14 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       orderIndex: concept.orderIndex,
       batchId: concept.batchId,
       fromPreviousPhoto: isFromPreviousPhoto(room.photoRevision, concept.sourcePhotoRevision),
+      sourcePhotoSrc:
+        !concept.baseConceptId &&
+        room.photoUrl &&
+        concept.sourcePhotoRevision === room.photoRevision
+          ? await presignedObjectUrl(room.photoUrl, 60 * 60)
+          : undefined,
+      checkFurnitureAgainstSource: room.condition === 'keep',
+      editRequest: concept.editRequest ?? undefined,
     },
     room: {
       id: room.id,

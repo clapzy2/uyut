@@ -672,6 +672,49 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
           canComparePlan={Boolean(data.plan)}
           planUnconfirmed={Boolean(data.plan && !data.plan.architecture)}
         />
+        {concept.editRequest ? (
+          <details className="mt-3 text-sm text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3 text-ink">
+              Что просили изменить
+            </summary>
+            <p className="whitespace-pre-wrap">{concept.editRequest}</p>
+          </details>
+        ) : null}
+        {concept.sourcePhotoSrc && concept.renderSrc ? (
+          <details className="mt-3 border border-line p-3 text-sm text-ink-2">
+            <summary className="min-h-11 cursor-pointer py-3 text-ink">
+              Сравнить с исходным фото комнаты
+            </summary>
+            {concept.checkFurnitureAgainstSource && !concept.qualityReview?.furnitureIdentity ? (
+              <p className="mb-3">
+                Если переносили мебель, сверьте предмет вручную: сравните его фасады, ручки,
+                пропорции и материал на обоих кадрах.
+              </p>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <figure>
+                {/* biome-ignore lint/performance/noImgElement: короткоживущая подписанная ссылка */}
+                <img
+                  loading="lazy"
+                  className="w-full"
+                  src={concept.sourcePhotoSrc}
+                  alt="Исходная комната"
+                />
+                <figcaption className="mt-1">Исходное фото</figcaption>
+              </figure>
+              <figure>
+                {/* biome-ignore lint/performance/noImgElement: короткоживущая подписанная ссылка */}
+                <img
+                  loading="lazy"
+                  className="w-full"
+                  src={concept.renderSrc}
+                  alt="Сохранённый вариант комнаты"
+                />
+                <figcaption className="mt-1">Сохранённый вариант</figcaption>
+              </figure>
+            </div>
+          </details>
+        ) : null}
         {conceptNote && !concept.editedRenderKey ? (
           <p className="mt-4 border-l-2 border-line-strong pl-4 text-[15px] leading-relaxed text-ink-2">
             {conceptNote}
