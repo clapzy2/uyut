@@ -55,6 +55,7 @@ const data: ConceptPageData = {
     projectId: 'project',
     projectTitle: 'Квартира',
     budgetKopecks: null,
+    hasLayout: false,
   },
   plan: null,
   shopping: { byCatalogItem: {}, count: 0 },
@@ -89,6 +90,34 @@ const data: ConceptPageData = {
 }
 
 describe('concept and product explanations', () => {
+  it('links the saved concept directly to the room measurements and furnishing', () => {
+    const html = renderToStaticMarkup(createElement(ConceptViewer, { data }))
+    expect(html).toContain('href="/projects/project/rooms/room#room-measurements"')
+    expect(html).toContain('Размеры и расстановка')
+    expect(html).toContain('href="/projects/project/summary"')
+  })
+
+  it('offers the available 2D check when a contour replaces manual measurements', () => {
+    const object = data.objects[0]
+    if (!object) throw new Error('Не задан предмет тестового концепта')
+    const html = renderToStaticMarkup(
+      createElement(ConceptViewer, {
+        data: {
+          ...data,
+          room: { ...data.room, hasLayout: true },
+          objects: [
+            {
+              ...object,
+              matches: [{ ...match, fit: { state: 'unknown', reason: 'roomDimensions' } }],
+            },
+          ],
+        },
+      }),
+    )
+    expect(html).toContain('2D-проверка доступна в комнате')
+    expect(html).not.toContain('Для проверки укажите размеры комнаты')
+  })
+
   it('keeps compact markers inside larger touch targets and offers a named object list', () => {
     const html = renderToStaticMarkup(createElement(ConceptViewer, { data }))
     const marker = html.match(/<button[^>]*aria-label="1\. Диван"[^>]*>(.*?)<\/button>/)?.[0]
