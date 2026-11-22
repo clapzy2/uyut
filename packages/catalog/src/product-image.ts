@@ -3,13 +3,19 @@ import type { CatalogImage } from '@uyut/db'
 import { gdeslonLampSpec } from './gdeslon-lamp-specs'
 
 const NETWORK_IMAGE_HOST = 'imgng.gdeslon.ru'
-// Фото уличного светильника из каталога Nowodvorski. Размеры для расстановки
-// этого артикула в комнате по-прежнему отсутствуют.
-const idaPhoto = {
-  externalId: '95754-1453268-3371525462737917000',
-  title: 'Торшер Nowodvorski Ida 11373 высота 800 мм',
-  url: 'https://nowodvorski.com/app/uploads/nowodvorski-pim-images/2026/08/11373.webp',
-}
+// Для этих артикулов сверено фото, а данных для расстановки пока недостаточно.
+const photosWithoutSizes = [
+  {
+    externalId: '95754-1453268-3371525462737917000',
+    title: 'Торшер Nowodvorski Ida 11373 высота 800 мм',
+    url: 'https://nowodvorski.com/app/uploads/nowodvorski-pim-images/2026/08/11373.webp',
+  },
+  {
+    externalId: '95754-1614665-15185461308487930000',
+    title: 'Торшер EVOLUCE Bagetti SL1142.505.01 цвет арматуры Белый, Коричневый',
+    url: 'https://lightsnab.ru/cache/image/5/1024x1024/20240408140435366173.webp',
+  },
+]
 
 /** Сначала фото магазина, затем копия партнёрской сети, которая иногда недоступна. */
 export function orderedImages(
@@ -26,10 +32,11 @@ export function orderedImages(
   const urls = images.map((image) => image.url).filter(Boolean)
   let verified: string | undefined
   if (product?.source === 'gdeslon') {
-    verified = gdeslonLampSpec(product.externalId, product.title)?.imageUrl
-    if (product.externalId === idaPhoto.externalId && product.title === idaPhoto.title) {
-      verified = idaPhoto.url
-    }
+    verified =
+      gdeslonLampSpec(product.externalId, product.title)?.imageUrl ??
+      photosWithoutSizes.find(
+        (photo) => photo.externalId === product.externalId && photo.title === product.title,
+      )?.url
   }
   return [
     ...new Set([
