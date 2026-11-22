@@ -14,6 +14,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1581583-11806247623909007000',
     title: 'Торшер Eglo Cawton 43954 цвет плафона/подвески Серый, цвет арматуры Коричневый, Сталь',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/43954',
+    imageUrl: 'https://eglo.ru/upload/imager/59a42128e99dc075c29d8d654d9cde4b.jpg',
     baseCm: {
       diameter: 23.0,
     },
@@ -39,6 +40,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1594175-16073954005762677000',
     title: 'Торшер Eglo Apricale 98285 цвет арматуры Серый',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/98285',
+    imageUrl:
+      'https://donplafon.ru/upload/iblock/8e8/8u4qjid9gcgayfak104ldtkwgk3ckgr2/torsher_eglo_apricale_98285.jpeg',
     baseCm: {
       diameter: 22.0,
     },
@@ -52,6 +55,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1594191-3204177565223883000',
     title: 'Торшер Eglo Sabalete 98366 цвет плафона/подвески Белый, цвет арматуры Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/98366',
+    imageUrl: 'https://eglo.ru/upload/imager/523ec9f1d7daa73548528d5bef103279.jpg',
     baseCm: {
       diameter: 28.0,
     },
@@ -63,6 +67,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1581383-12617718053908306000',
     title: 'Торшер Eglo Lacey 43614 цвет плафона/подвески Черный, цвет арматуры Бежевый, Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/43614',
+    imageUrl: 'https://eglo.ru/photo/43614.jpg',
     baseCm: {
       width: 28.0,
       depth: 20.0,
@@ -75,6 +80,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1593826-6733701871085435000',
     title: 'Торшер Eglo Pasteri 95164 цвет плафона/подвески Белый, цвет арматуры Никель',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/95164',
+    imageUrl: 'https://eglo.ru/upload/imager/199a5847c9f12742f53415d0f7778bfa.jpg',
     baseCm: {
       diameter: 23.0,
     },
@@ -88,6 +94,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1594082-762870053434654200',
     title: 'Торшер Eglo Viserbella 97647 цвет плафона/подвески Золото, цвет арматуры Бежевый',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/97647',
+    imageUrl: 'https://eglo.ru/upload/imager/7a2301433d2549ed795f51be43787a0f.jpg',
     baseCm: {
       diameter: 23.0,
     },
@@ -101,6 +108,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1593558-13850505222885341000',
     title: 'Торшер Eglo Nadina 92206 цвет плафона/подвески Белый, цвет арматуры Никель',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/92206',
+    imageUrl: 'https://eglo.ru/upload/imager/fcf49ae2370d9b903076c7700ae4b01e.jpg',
     baseCm: {
       diameter: 32.0,
     },
@@ -115,6 +123,7 @@ const specs: LampSpec[] = [
     title:
       'Торшер Eglo Almerimar 390174 цвет плафона/подвески Латунь, Серый, цвет арматуры Латунь, Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/390174',
+    imageUrl: 'https://eglo.ru/upload/imager/d5562a50d685f929cf52495b8ede97c6.jpg',
     baseCm: {
       diameter: 45.0,
     },
@@ -127,6 +136,7 @@ const specs: LampSpec[] = [
     title:
       'Торшер Eglo HORNWOOD 43521 цвет плафона/подвески Коричневый, цвет арматуры Бежевый, Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/43521',
+    imageUrl: 'https://eglo.ru/upload/imager/32ead08d8e9e3adc33e04aa1559fb496.jpg',
     baseCm: {
       diameter: 23.0,
     },
@@ -140,6 +150,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1581309-3514342522293234000',
     title: 'Торшер Eglo TOWNSHEND 43516 цвет арматуры Коричневый, Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/43516',
+    imageUrl: 'https://eglo.ru/upload/imager/a625b169327738b7cf9b8dd1536fbede.jpg',
     baseCm: {
       diameter: 25.0,
     },
@@ -151,6 +162,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1581329-18186343056349176000',
     title: 'Торшер Eglo Redcliffe 43537 цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/43537',
+    imageUrl: 'https://eglo.ru/upload/imager/2ef8a97181e08b07623666a24a4e49b6.jpg',
     baseCm: {
       diameter: 25.0,
     },
@@ -163,6 +175,7 @@ const specs: LampSpec[] = [
     title:
       'Торшер Eglo Castuera 390295 цвет плафона/подвески Золото, Розовый, цвет арматуры Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/390295',
+    imageUrl: 'https://eglo.ru/upload/imager/6a423e78f2e2739040b6795fe5a2372b.jpg',
     baseCm: {
       diameter: 29.5,
     },
@@ -176,6 +189,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1581578-8765760286831002000',
     title: 'Торшер Eglo Oxpark 43945 цвет плафона/подвески Бежевый, цвет арматуры Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/43945',
+    imageUrl: 'https://eglo.ru/photo/43945.jpg',
     baseCm: {
       diameter: 25.0,
     },
@@ -251,6 +265,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1591812-16329013489859414000',
     title: 'Торшер Lightstar Croco 815753 цвет плафона/подвески Белый, цвет арматуры Латунь',
     sourceUrl: 'https://lightstar-shop.ru/torsher-lightstar-croco-815753',
+    imageUrl: 'https://cdn.basicdecor.ru/files/media/product_photos/ec/1938285/big/815753_11.jpg',
     baseCm: { diameter: 30 },
     dimensionsCm: { height: 165, width: 32, depth: 32 },
   },
@@ -277,6 +292,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1464550-1096436217204427800',
     title: 'Торшер Novotech STUD1 359545 цвет плафона/подвески Белый, цвет арматуры Белый',
     sourceUrl: 'https://www.isonex.ru/upload/images_right_names/28469/0/0049992.jpeg',
+    imageUrl: 'https://img.divine-light.ru/1/528/001528019_256_256.jpg',
     baseCm: { width: 45, depth: 30 },
     dimensionsCm: { height: 194.7 },
   },
@@ -284,6 +300,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1464547-10686904316458310000',
     title: 'Торшер Novotech Ledo 359542 цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://www.isonex.ru/upload/images_right_names/28466/0/0049989.jpeg',
+    imageUrl: 'https://img.divine-light.ru/1/578/001578620_256_256.jpg',
     baseCm: { diameter: 27 },
     dimensionsCm: { width: 27, depth: 72, height: 135.5 },
   },
@@ -291,6 +308,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1464548-7848349082610873000',
     title: 'Торшер Novotech Ledo 359543 цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://www.isonex.ru/upload/images_right_names/28467/0/0049990.jpeg',
+    imageUrl: 'https://img.divine-light.ru/1/578/001578614_256_256.jpg',
     baseCm: { diameter: 24 },
     dimensionsCm: { width: 24, depth: 24, height: 146 },
   },
@@ -395,12 +413,14 @@ const specs: LampSpec[] = [
     title:
       'Торшер Lussole LSP-0590 цвет плафона/подвески Бежевый, цвет арматуры Коричневый, Черный',
     sourceUrl: 'https://www.lampadia.ru/product/torsher-lsp-0590-lussole/',
+    imageUrl: 'https://electrobufet.ru/pictures/product/middle/79706_middle.jpg',
     dimensionsCm: { width: 46, depth: 46, height: 153 },
   },
   {
     externalId: '95754-1454653-15228172501580095000',
     title: 'Торшер Arlight OTTORI 58485 высота 1252 мм',
     sourceUrl: 'https://arlight.ru/catalog/product/058485/',
+    imageUrl: 'https://arlight.ru/upload/products/E7CD9756F890794C9FDC527D756B2F45.jpg',
     baseCm: { diameter: 21 },
     dimensionsCm: { depth: 24.7, width: 21, height: 125.2 },
   },
@@ -408,6 +428,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1454655-7239312851140980000',
     title: 'Торшер Arlight VERDI 58488 высота 1465 мм',
     sourceUrl: 'https://arlight.ru/catalog/product/058488/',
+    imageUrl: 'https://arlight.ru/upload/products/1A98331E629EEC4DB76E752C24A6A7D8.jpg',
     baseCm: { diameter: 25 },
     dimensionsCm: { depth: 37.3, width: 25, height: 146.5 },
   },
@@ -452,19 +473,21 @@ const specs: LampSpec[] = [
     externalId: '95754-1454431-17207002364087716000',
     title: 'Торшер Arlight LUNAR 56252 высота 1890 мм',
     sourceUrl: 'https://arlight.ru/catalog/product/056252/',
+    imageUrl: 'https://arlight.ru/upload/products/87FFCC281FE6BE4F9E1A8F5D152F8DB7.jpg',
     dimensionsCm: { height: 189 },
   },
   {
     externalId: '95754-1454432-8824861130809120000',
     title: 'Торшер Arlight LUNAR 56253 высота 1890 мм',
     sourceUrl: 'https://arlight.ru/catalog/product/056253/',
+    imageUrl: 'https://arlight.ru/upload/products/A1E3765B20CEEA4AAB0D65D58217C00E.jpg',
     dimensionsCm: { height: 189 },
   },
   {
     externalId: '95754-1453383-5852857690636445000',
     title: 'Торшер Nowodvorski Lago 11676 высота 1630 мм',
     sourceUrl: 'https://solislux.eu/site_files/e2f98346e977b9373798e914f5324301.pdf#page=86',
-    imageUrl: 'https://nowodvorski.com/app/uploads/nowodvorski-pim-images/2026/08/11676.webp',
+    imageUrl: 'https://img.divine-light.ru/1/565/001565405_800_800.jpg',
     baseCm: { diameter: 34 },
     dimensionsCm: { width: 46, height: 163, depth: 46 },
   },

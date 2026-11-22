@@ -23,3 +23,15 @@ it('uses the verified photo only for the matching Gianna finish and offer', () =
   expect(orderedImages([], { ...product, title: product.title.replace('SB', 'SC') })).toEqual([])
   expect(orderedImages([], { ...product, source: 'dump' })).toEqual([])
 })
+
+it('supplies a matching Bagetti photo even when no dimensions are available', () => {
+  const product = {
+    source: 'gdeslon',
+    externalId: '95754-1614665-15185461308487930000',
+    title: 'Торшер EVOLUCE Bagetti SL1142.505.01 цвет арматуры Белый, Коричневый',
+  }
+  expect(orderedImages([], product)).toEqual([
+    'https://lightsnab.ru/cache/image/5/1024x1024/20240408140435366173.webp',
+  ])
+  expect(orderedImages([], { ...product, title: product.title.replace('.01', '.02') })).toEqual([])
+})
