@@ -289,6 +289,47 @@ describe('catalog in a real database', () => {
     expect(totals.embedded).toBeGreaterThanOrEqual(3)
   })
 
+  it('показывает сверенное фото точного артикула в подборе к сохранённому концепту', async () => {
+    const db = getDb()
+    const externalId = '95754-1453383-5852857690636445000'
+    const title = 'Торшер Nowodvorski Lago 11676 высота 1630 мм'
+    const copy = 'https://imgng.gdeslon.ru/old-copy.jpg'
+    await upsertFeedItems(db, [
+      {
+        source: 'gdeslon',
+        externalId,
+        title,
+        category: 'lamp',
+        subcategory: 'floorLamp',
+        priceKopecks: 20_000_00,
+        affiliateUrl: 'https://example.test/lago',
+        images: [{ url: copy }],
+        inStock: true,
+      },
+    ])
+    try {
+      const [item] = await db
+        .select()
+        .from(catalogItems)
+        .where(eq(catalogItems.externalId, externalId))
+      if (!item) throw new Error('Тестовый товар не сохранился')
+      const embedding = axis(1002)
+      await saveEmbeddings(db, [
+        { id: item.id, hash: item.contentHash, imageEmbedding: embedding, textEmbedding: null },
+      ])
+      const result = await matchesForObject(
+        { category: 'lamp', label: 'floor lamp', embedding } as ConceptObject,
+        null,
+      )
+      expect(result.matches.find((match) => match.id === item.id)).toMatchObject({
+        imageUrl: 'https://img.divine-light.ru/1/565/001565405_800_800.jpg',
+        imageFallbackUrl: copy,
+      })
+    } finally {
+      await db.delete(catalogItems).where(eq(catalogItems.externalId, externalId))
+    }
+  })
+
   it('находит прикроватные тумбы в обеих категориях, не подменяя их столом или шкафом', async () => {
     const db = getDb()
     const prefix = `it-bedside-${randomUUID()}`

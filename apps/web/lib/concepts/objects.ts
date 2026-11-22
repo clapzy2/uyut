@@ -33,6 +33,7 @@ import {
 } from '@/lib/concepts/plan-review'
 import { getDb } from '@/lib/db'
 import { NotFoundError } from '@/lib/projects/access'
+import { layoutWithMeasurements } from '@/lib/projects/layout-with-measurements'
 import { getRoom } from '@/lib/projects/repository'
 import { shoppingQuantities } from '@/lib/shopping/repository'
 import { ownObjectKey, presignedObjectUrl } from '@/lib/storage'
@@ -113,6 +114,7 @@ export type ConceptPageData = {
     projectId: string
     projectTitle: string
     budgetKopecks: number | null
+    hasLayout: boolean
   }
   plan: {
     src: string
@@ -144,7 +146,7 @@ async function toMatch(
   limits: RoomLimits,
 ): Promise<MatchView> {
   const dimensionsCm = effectiveSize({ dimensionsCm: null }, item)
-  const images = orderedImages(item.images)
+  const images = orderedImages(item.images, item)
   const [imageUrl, imageFallbackUrl, variants] = await Promise.all([
     productImage(images[0]),
     productImage(images[1]),
@@ -327,6 +329,15 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       projectId: room.projectId,
       projectTitle: room.project.title,
       budgetKopecks: room.project.budgetKopecks,
+      hasLayout: Boolean(
+        layoutWithMeasurements(
+          room.name,
+          room.measurements,
+          room.project.planReading?.geometry,
+          [],
+          room.kind,
+        ),
+      ),
     },
     plan: planKey
       ? {

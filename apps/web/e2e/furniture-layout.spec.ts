@@ -166,6 +166,15 @@ test.describe('синтетическая расстановка мебели, �
       data: { email, password },
     })
     expect(login.status()).toBe(200)
+    await db.update(shoppingListItems).set({ roomId: null }).where(eq(shoppingListItems.id, itemId))
+    try {
+      await page.goto(`/projects/${projectId}/rooms/${roomId}`)
+      const plan = page.locator('#room-plan')
+      await expect(plan).toBeVisible()
+      await expect(plan.getByRole('button', { name: /^Переместить:/ })).toHaveCount(0)
+    } finally {
+      await db.update(shoppingListItems).set({ roomId }).where(eq(shoppingListItems.id, itemId))
+    }
     for (const productCase of [
       {
         category: 'lamp',

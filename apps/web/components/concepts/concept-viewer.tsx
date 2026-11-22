@@ -106,6 +106,7 @@ function MatchRow({
   quantity,
   adding,
   canAdd,
+  hasLayout,
   onAdd,
 }: {
   match: MatchView
@@ -113,6 +114,7 @@ function MatchRow({
   quantity: number
   adding: string | null
   canAdd: boolean
+  hasLayout: boolean
   onAdd: (match: MatchView, object: ObjectView, variant?: SelectedProductVariant) => void
 }) {
   const [variantIndex, setVariantIndex] = useState(0)
@@ -122,6 +124,7 @@ function MatchRow({
   const affiliateUrl = variant?.affiliateUrl ?? match.affiliateUrl
   const imageUrl = variant?.imageUrl ?? match.imageUrl
   const showVariants = match.variants.length > 1
+  const fit = fitLabel(match.fit, hasLayout)
 
   return (
     <li className={cn('motion-list-row group py-3', overBudget && 'opacity-75')}>
@@ -155,7 +158,7 @@ function MatchRow({
               .filter(Boolean)
               .join(' · ')}
           </span>
-          {fitLabel(match.fit) ? (
+          {fit ? (
             <span
               className={cn(
                 'mt-0.5 block text-[13px] leading-relaxed',
@@ -164,7 +167,7 @@ function MatchRow({
                   : 'text-ink-2',
               )}
             >
-              {fitLabel(match.fit)}
+              {fit}
             </span>
           ) : null}
           {match.catalogNotice ? (
@@ -259,6 +262,7 @@ function MatchesPanel({
   adding,
   onAdd,
   canAdd,
+  hasLayout,
   onlyFitting,
   onOnlyFitting,
 }: {
@@ -268,6 +272,7 @@ function MatchesPanel({
   adding: string | null
   onAdd: (match: MatchView, object: ObjectView, variant?: SelectedProductVariant) => void
   canAdd: boolean
+  hasLayout: boolean
   onlyFitting: boolean
   onOnlyFitting: (value: boolean) => void
 }) {
@@ -343,6 +348,7 @@ function MatchesPanel({
             quantity={quantities[match.id] ?? 0}
             adding={adding}
             canAdd={canAdd}
+            hasLayout={hasLayout}
             onAdd={onAdd}
           />
         ))}
@@ -718,6 +724,7 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             adding={adding}
             onAdd={addToList}
             canAdd={canEdit}
+            hasLayout={data.room.hasLayout}
             onlyFitting={onlyFitting}
             onOnlyFitting={setOnlyFitting}
           />
@@ -734,12 +741,20 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
               ? `В списке покупок ${pluralItems(data.shopping.count)}.`
               : 'Список покупок проекта пока пуст.'}
           </span>
-          <Link
-            href={`/projects/${data.room.projectId}/summary`}
-            className="inline-block py-1.5 text-ink underline decoration-accent decoration-1 underline-offset-4"
-          >
-            Итоги проекта
-          </Link>
+          <div className="flex flex-wrap gap-x-4">
+            <Link
+              href={`/projects/${data.room.projectId}/rooms/${data.room.id}#room-measurements`}
+              className="inline-flex min-h-11 items-center text-ink underline decoration-accent decoration-1 underline-offset-4"
+            >
+              Размеры и расстановка
+            </Link>
+            <Link
+              href={`/projects/${data.room.projectId}/summary`}
+              className="inline-flex min-h-11 items-center text-ink underline decoration-accent decoration-1 underline-offset-4"
+            >
+              Итоги проекта
+            </Link>
+          </div>
         </div>
         {canEdit && selected?.maskKey && concept.renderKey ? (
           <div className="border-t border-line pt-4">

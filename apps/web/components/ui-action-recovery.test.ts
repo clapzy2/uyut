@@ -186,6 +186,7 @@ const viewerData: ComponentProps<typeof ConceptViewer>['data'] = {
     projectId: 'project',
     projectTitle: 'Квартира',
     budgetKopecks: null,
+    hasLayout: false,
   },
   plan: null,
   shopping: { byCatalogItem: {}, count: 0 },
