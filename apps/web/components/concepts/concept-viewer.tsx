@@ -680,6 +680,11 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
             <p className="whitespace-pre-wrap">{concept.editRequest}</p>
           </details>
         ) : null}
+        {concept.usedFurnitureSample?.src === null ? (
+          <p className="mt-3 text-sm text-ink-2">
+            Образец предмета из этой правки больше недоступен.
+          </p>
+        ) : null}
         {concept.sourcePhotoSrc && concept.renderSrc ? (
           <details className="mt-3 border border-line p-3 text-sm text-ink-2">
             <summary className="min-h-11 cursor-pointer py-3 text-ink">
@@ -713,6 +718,20 @@ export function ConceptViewer({ data }: { data: ConceptPageData }) {
                 <figcaption className="mt-1">Сохранённый вариант</figcaption>
               </figure>
             </div>
+            {concept.usedFurnitureSample?.src ? (
+              <figure className="mt-4 max-w-sm">
+                {/* biome-ignore lint/performance/noImgElement: короткоживущая подписанная ссылка */}
+                <img
+                  loading="lazy"
+                  className="w-full"
+                  src={concept.usedFurnitureSample.src}
+                  alt="Образец предмета из этой правки"
+                />
+                <figcaption className="mt-1">
+                  Образец предмета, использованный для этой правки
+                </figcaption>
+              </figure>
+            ) : null}
           </details>
         ) : null}
         {conceptNote && !concept.editedRenderKey ? (

@@ -171,6 +171,7 @@ describe('пожелания конкретного варианта в авто
     expect(mocks.review).toHaveBeenCalledTimes(1)
     expect(mocks.saved.find((value) => value.status === 'ready')?.qualityReview).toMatchObject({
       furnitureIdentity: 'manual',
+      furnitureReferenceFile: 'reference.webp',
     })
     expect(mocks.render.mock.calls[0]?.[0].imageUrl).toBe(
       `data:image/png;base64,${roomImage.toString('base64')}`,

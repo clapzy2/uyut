@@ -126,9 +126,10 @@ describe('отчёт качества в карточке концепта', () 
     const db = getDb()
     const room = await createRoom(owner, projectId, { name: 'Гостиная', kind: 'living' })
     const original = `projects/${projectId}/rooms/${room.id}/source.webp`
+    const key = `projects/${projectId}/rooms/${room.id}/furniture-references/first.webp`
     await db
       .update(rooms)
-      .set({ photoUrl: original, photoRevision: 3 })
+      .set({ photoUrl: original, photoRevision: 3, furnitureReference: { key, photoRevision: 3 } })
       .where(eq(rooms.id, room.id))
     const [concept] = await db
       .insert(concepts)
@@ -141,12 +142,27 @@ describe('отчёт качества в карточке концепта', () 
         status: 'ready',
         sourcePhotoRevision: 3,
         editRequest: 'Перенести комод',
+        qualityReview: {
+          ...review,
+          furnitureIdentity: 'manual',
+          furnitureReferenceFile: 'first.webp',
+        },
       })
       .returning()
     if (!concept) throw new Error('No concept')
     const before = (await getConceptPage(owner, concept.id)).concept
     expect(before.sourcePhotoSrc).toContain('/source.webp')
     expect(before.editRequest).toBe('Перенести комод')
+    expect(before.usedFurnitureSample?.src).toContain('/first.webp')
+    await db
+      .update(rooms)
+      .set({
+        furnitureReference: { key: key.replace('first.webp', 'second.webp'), photoRevision: 3 },
+      })
+      .where(eq(rooms.id, room.id))
+    const replaced = (await getConceptPage(owner, concept.id)).concept
+    expect(replaced.sourcePhotoSrc).toContain('/source.webp')
+    expect(replaced.usedFurnitureSample).toEqual({ src: null })
     await db
       .update(rooms)
       .set({ photoUrl: original.replace('source.webp', 'new.webp'), photoRevision: 4 })
@@ -154,6 +170,7 @@ describe('отчёт качества в карточке концепта', () 
     const after = (await getConceptPage(owner, concept.id)).concept
     expect(after.fromPreviousPhoto).toBe(true)
     expect(after.sourcePhotoSrc).toBeUndefined()
+    expect(after.usedFurnitureSample).toEqual({ src: null })
   })
 
   it('после переноса окна сохраняет описание, но помечает автосверку как прежнюю', async () => {

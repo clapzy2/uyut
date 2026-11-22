@@ -809,6 +809,10 @@ export function ConceptsPanel({
                 ))}
               </fieldset>
               <div hidden={referenceMode !== 'photo'}>
+                <p className="mb-2 text-sm text-ink-2">
+                  Снимите предмет целиком спереди, чтобы были видны фасады и ручки. По этому кадру
+                  можно будет сравнить детали с результатом правки.
+                </p>
                 <FurniturePhotoUpload
                   key={sourcePhotoRevision}
                   roomId={roomId}

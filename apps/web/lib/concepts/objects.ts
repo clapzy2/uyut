@@ -109,6 +109,7 @@ export type ConceptPageData = {
     fromPreviousPhoto: boolean
     sourcePhotoSrc?: string
     checkFurnitureAgainstSource?: boolean
+    usedFurnitureSample?: { src: string | null }
     editRequest?: string
   }
   room: {
@@ -292,6 +293,27 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
     }),
   )
 
+  const savedSample = room.furnitureReference
+  const usedSample = concept.qualityReview?.furnitureReferenceFile
+  const sourcePhotoKey =
+    !concept.baseConceptId && concept.sourcePhotoRevision === room.photoRevision
+      ? room.photoUrl
+      : null
+  const usedFurnitureSample =
+    room.role === 'owner' && usedSample
+      ? {
+          src:
+            sourcePhotoKey &&
+            savedSample &&
+            savedSample.photoRevision === room.photoRevision &&
+            savedSample.key ===
+              `projects/${room.projectId}/rooms/${room.id}/furniture-references/${usedSample}` &&
+            !usedSample.includes('/')
+              ? await presignedObjectUrl(savedSample.key, 60 * 60)
+              : null,
+        }
+      : undefined
+
   return {
     role: room.role,
     other: other
@@ -325,13 +347,11 @@ export async function getConceptPage(userId: string, conceptId: string): Promise
       orderIndex: concept.orderIndex,
       batchId: concept.batchId,
       fromPreviousPhoto: isFromPreviousPhoto(room.photoRevision, concept.sourcePhotoRevision),
-      sourcePhotoSrc:
-        !concept.baseConceptId &&
-        room.photoUrl &&
-        concept.sourcePhotoRevision === room.photoRevision
-          ? await presignedObjectUrl(room.photoUrl, 60 * 60)
-          : undefined,
+      sourcePhotoSrc: sourcePhotoKey
+        ? await presignedObjectUrl(sourcePhotoKey, 60 * 60)
+        : undefined,
       checkFurnitureAgainstSource: room.condition === 'keep',
+      usedFurnitureSample,
       editRequest: concept.editRequest ?? undefined,
     },
     room: {
