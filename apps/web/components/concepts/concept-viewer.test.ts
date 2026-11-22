@@ -90,6 +90,30 @@ const data: ConceptPageData = {
 }
 
 describe('concept and product explanations', () => {
+  it('shows the saved request and offers a side-by-side comparison with the available source', () => {
+    const html = renderToStaticMarkup(
+      createElement(ConceptViewer, {
+        data: {
+          ...data,
+          concept: {
+            ...data.concept,
+            sourcePhotoSrc: 'https://storage.test/source.webp',
+            checkFurnitureAgainstSource: true,
+            editRequest: 'Перенести комод, оставить остальную мебель',
+          },
+        },
+      }),
+    )
+    expect(html).toContain('Что просили изменить')
+    expect(html).toContain('Перенести комод, оставить остальную мебель')
+    expect(html).toContain('Сравнить с исходным фото комнаты')
+    expect(html).toContain('https://storage.test/source.webp')
+    expect(html).toContain('сверьте предмет вручную')
+    expect(renderToStaticMarkup(createElement(ConceptViewer, { data }))).not.toContain(
+      'Сравнить с исходным фото комнаты',
+    )
+  })
+
   it('links the saved concept directly to the room measurements and furnishing', () => {
     const html = renderToStaticMarkup(createElement(ConceptViewer, { data }))
     expect(html).toContain('href="/projects/project/rooms/room#room-measurements"')

@@ -113,10 +113,13 @@ describe('пожелания конкретного варианта в авто
   it('передаёт вырезку исходного фото в шаг установки без концепта-основы', async () => {
     const row = setupDatabase(true)
     Object.assign(row.room, { condition: 'keep', photoRevision: 3 })
+    const editRequest = 'Убрать комод справа и поставить этот же комод под окном.'
+    mocks.review.mockResolvedValue({ ...checked, sourceComparison: 'verified' })
     expect(
       await run({
         ...payload,
         count: 1,
+        editRequest,
         sourceObject: { photoRevision: 3, box: { x: 0.5, y: 0.5, w: 0.5, h: 0.5 } },
         editSteps: [
           { titleRu: 'Убрать', prompt: 'Remove cabinet', needsObject: false },
@@ -125,6 +128,11 @@ describe('пожелания конкретного варианта в авто
       }),
     ).toMatchObject({ done: 1, renderRequests: 2 })
     expect(mocks.crop).toHaveBeenCalledTimes(1)
+    expect(mocks.rows[0]?.editRequest).toBe(editRequest)
+    expect(mocks.saved.find((value) => value.status === 'ready')?.qualityReview).toMatchObject({
+      sourceComparison: 'verified',
+      furnitureIdentity: 'manual',
+    })
     expect(mocks.render.mock.calls.filter(([request]) => request.referenceUrls).length).toBe(1)
     expect(
       mocks.render.mock.calls
@@ -162,11 +170,7 @@ describe('пожелания конкретного варианта в авто
     // Проверка комнаты не доказывает совпадение с отдельным предметным снимком.
     expect(mocks.review).toHaveBeenCalledTimes(1)
     expect(mocks.saved.find((value) => value.status === 'ready')?.qualityReview).toMatchObject({
-      imageReview: 'limited',
-      sourceComparison: 'limited',
-      imageReviewLimitations: [
-        expect.objectContaining({ detail: expect.stringContaining('отдельному фото') }),
-      ],
+      furnitureIdentity: 'manual',
     })
     expect(mocks.render.mock.calls[0]?.[0].imageUrl).toBe(
       `data:image/png;base64,${roomImage.toString('base64')}`,

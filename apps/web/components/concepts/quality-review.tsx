@@ -15,6 +15,13 @@ export function QualityReview({
   planUnconfirmed?: boolean
 }) {
   const planNeedsComparison = planStatus === 'changed' || planStatus === 'unlinked'
+  const furnitureNotice =
+    review?.furnitureIdentity === 'manual' ? (
+      <p className="mt-2 text-ink">
+        Сверьте, что на новом месте тот же предмет: форму, фасады, ручки и материал. Автосверка
+        комнаты не подтверждает совпадение предмета с образцом.
+      </p>
+    ) : null
   const imageReviewIncomplete = review?.imageReview === 'limited'
   const imageReviewNotice = imageReviewIncomplete ? (
     <div className="mt-2 text-ink">
@@ -56,6 +63,7 @@ export function QualityReview({
           Цвета обновлены; новая автосверка не выполнялась. Сверьте детали с исходным концептом.
         </p>
         {unconfirmedPlanNotice}
+        {furnitureNotice}
       </div>
     )
   }
@@ -68,6 +76,8 @@ export function QualityReview({
             : 'Автосверка не выполнялась. Сверьте окна и двери с исходным планом или фото.'}
         </p>
         {sourceComparisonNotice}
+        {imageReviewNotice}
+        {furnitureNotice}
         {unconfirmedPlanNotice}
       </div>
     )
@@ -94,6 +104,7 @@ export function QualityReview({
       {unconfirmedPlanNotice}
       {imageReviewNotice}
       {sourceComparisonNotice}
+      {furnitureNotice}
       {issues.length > 0 ? (
         <ul className="mt-2 list-disc space-y-1 pl-5">
           {issues.map((issue) => (

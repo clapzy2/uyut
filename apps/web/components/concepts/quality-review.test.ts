@@ -51,6 +51,15 @@ describe('concept quality explanation', () => {
     expect(html).not.toContain('Автосверка изображения выполнена')
   })
 
+  it.each(['checked', 'unavailable'] as const)(
+    'keeps the independent furniture identity check visible with status %s',
+    (status) => {
+      const html = render({ ...reviewed, status, furnitureIdentity: 'manual' })
+      expect(html).toContain('Сверьте, что на новом месте тот же предмет')
+      expect(html).toContain('фасады, ручки и материал')
+    },
+  )
+
   it('shows issues verbatim while keeping image review separate from dimensional checks', () => {
     const html = render({
       ...reviewed,

@@ -299,8 +299,8 @@ export function ConceptEditForm({
       {objects.length > 0 ? (
         <div>
           <p className="mb-2 text-[13px] text-ink-2">
-            О каком предмете речь? Приложим его картинкой, и модель перерисует именно его, а не
-            похожий.
+            О каком предмете речь? Приложим его изображение как образец. После правки сравните форму
+            и детали предмета с исходником.
           </p>
           <div className="flex flex-wrap gap-2">
             {objects.map((object) => (
