@@ -25,6 +25,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1594417-5982982568465175000',
     title: 'Торшер Eglo Cremella 99507 цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://tools.eglo.com/tds/eng-GB/99507',
+    imageUrl: 'https://img.lu.ru/index/eglo_99507.jpg',
     baseCm: {
       diameter: 25.0,
     },
@@ -189,6 +190,8 @@ const specs: LampSpec[] = [
     title:
       'Торшер Citilux Мартин CL332961 цвет плафона/подвески Прозрачный, цвет арматуры Коричневый',
     sourceUrl: 'https://citilux.ru/store/cl332961/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=442380&productId=102828&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     baseCm: { diameter: 28.5 },
     dimensionsCm: { width: 35, depth: 35, height: 165 },
   },
@@ -196,6 +199,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1601147-18183574109169197000',
     title: 'Торшер Citilux Арчи CL807010 цвет плафона/подвески Белый, цвет арматуры Белый',
     sourceUrl: 'https://citilux.ru/store/cl807010/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=744585&productId=97094&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     baseCm: { diameter: 34.5 },
     dimensionsCm: { width: 180, depth: 50, height: 190 },
   },
@@ -203,6 +208,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1601148-4085005305871595500',
     title: 'Торшер Citilux Арчи CL807011 цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://citilux.ru/store/cl807011/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=745778&productId=97096&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     baseCm: { diameter: 34.5 },
     dimensionsCm: { width: 180, depth: 50, height: 190 },
   },
@@ -210,6 +217,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1600248-9616477030655404000',
     title: 'Торшер Citilux Мартин CL332962 цвет плафона/подвески Бежевый, цвет арматуры Коричневый',
     sourceUrl: 'https://citilux.ru/store/cl332962/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=318513&productId=102839&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     baseCm: { diameter: 28.5 },
     dimensionsCm: { width: 35, depth: 35, height: 165 },
   },
@@ -217,6 +226,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1590668-612975568160199400',
     title: 'Торшер Lightstar Loft 765717 цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://lightstar-shop.ru/torsher-lightstar-loft-765717',
+    imageUrl:
+      'https://lightstar.ru/image/cache/import_files/8a/8ac2dec71d7511e4b9daf46d04633574_7e558b6869d411e68113c81f66f678b0-1200x630.jpg',
     baseCm: { diameter: 32 },
     dimensionsCm: {},
   },
@@ -231,6 +242,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1591813-2280200031642014200',
     title: 'Торшер Lightstar Croco 815757 цвет плафона/подвески Белый, цвет арматуры Черный',
     sourceUrl: 'https://lightstar-shop.ru/torsher-lightstar-croco-815757',
+    imageUrl:
+      'https://lightstar.ru/image/cache/import_files/86/86b438255f0511eb8128c81f66f678b0_9f883b67b2f011eb8137c81f66f678b0-1200x630.jpg',
     baseCm: { diameter: 30 },
     dimensionsCm: { height: 165, width: 32, depth: 32 },
   },
@@ -246,6 +259,8 @@ const specs: LampSpec[] = [
     title:
       'Торшер Lightstar Torino 615719 цвет плафона/подвески Прозрачный, Сталь, цвет арматуры Сталь',
     sourceUrl: 'https://lightstar.ru/615719',
+    imageUrl:
+      'https://lightstar.ru/image/cache/import_files/e7/e709e689b92a11ef80c0c81f66f678af_acccc42a784a11f080c0c81f66f678af-1200x630.jpg',
     baseCm: { diameter: 25 },
     dimensionsCm: { width: 25, depth: 25, height: 141 },
   },
@@ -253,6 +268,8 @@ const specs: LampSpec[] = [
     externalId: '95754-1455263-5399966341447857000',
     title: 'Торшер Lightstar Loft 765747 цвет плафона/подвески Черный, цвет арматуры Черный',
     sourceUrl: 'https://lightstar.ru/765747',
+    imageUrl:
+      'https://lightstar.ru/image/cache/import_files/1f/1f26c962b92111ef80c0c81f66f678af_b4b32b2c79d511f080c0c81f66f678af-1200x630.jpg',
     baseCm: { diameter: 25 },
     dimensionsCm: { width: 25, height: 153 },
   },
@@ -281,24 +298,32 @@ const specs: LampSpec[] = [
     externalId: '95754-1599667-11931080404202879000',
     title: 'Торшер Citilux Томми CL102930 цвет плафона/подвески Светло-серый, цвет арматуры Хром',
     sourceUrl: 'https://citilux.ru/store/cl102930/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=737607&productId=96788&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 160, depth: 30, width: 30 },
   },
   {
     externalId: '95754-1599668-15654640306091383000',
     title: 'Торшер Citilux Томми CL102931 цвет плафона/подвески Прозрачный, цвет арматуры Хром',
     sourceUrl: 'https://citilux.ru/store/cl102931/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=737907&productId=96778&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 160, depth: 30, width: 30 },
   },
   {
     externalId: '95754-1599669-14053212049606900000',
     title: 'Торшер Citilux Томми CL102933 цвет плафона/подвески Бежевый, цвет арматуры Бронза',
     sourceUrl: 'https://citilux.ru/store/cl102933/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=693799&productId=96798&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 160, depth: 30, width: 30 },
   },
   {
     externalId: '95754-1599724-4171254188527176000',
     title: 'Торшер Citilux Берта CL126922 цвет плафона/подвески Белый, цвет арматуры Коричневый',
     sourceUrl: 'https://citilux.ru/store/cl126922/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=112832&productId=15796&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 156, depth: 22, width: 28 },
   },
   {
@@ -306,6 +331,8 @@ const specs: LampSpec[] = [
     title:
       'Торшер Citilux ORTON CL202933 цвет плафона/подвески Светло-серый, Бежевый, цвет арматуры Черный',
     sourceUrl: 'https://citilux.ru/store/cl202933/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=672373&productId=119362&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 172, depth: 45, width: 45 },
   },
   {
@@ -313,36 +340,46 @@ const specs: LampSpec[] = [
     title:
       'Торшер Citilux Мартин CL332991 цвет плафона/подвески Прозрачный, цвет арматуры Коричневый',
     sourceUrl: 'https://citilux.ru/store/cl332991/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=200914&productId=15372&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 170, depth: 40, width: 40 },
   },
   {
     externalId: '95754-1600250-17357118070640278000',
     title: 'Торшер Citilux Мартин CL332992 цвет плафона/подвески Бежевый, цвет арматуры Коричневый',
     sourceUrl: 'https://citilux.ru/store/cl332992/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=319506&productId=102838&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 170, depth: 40, width: 40 },
   },
   {
     externalId: '95754-1600459-17330086723483870000',
     title: 'Торшер Citilux Ровена CL427910 цвет плафона/подвески Белый, цвет арматуры Белый',
     sourceUrl: 'https://citilux.ru/store/cl427910/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=443379&productId=14851&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 178, depth: 40, width: 40 },
   },
   {
     externalId: '95754-1600545-11055369386033768000',
     title: 'Торшер Citilux Аврора CL463910 цвет плафона/подвески Белый, цвет арматуры Хром',
     sourceUrl: 'https://citilux.ru/store/cl463910/',
+    imageUrl:
+      'https://citilux.ru/api/image?fileId=367328&productId=14239&fieldName=detailPicture&w=558&h=558&format=webp&q=90',
     dimensionsCm: { height: 158, depth: 40, width: 40 },
   },
   {
     externalId: '95754-1573964-5749320479754701000',
     title: 'Торшер Globo Bailey 24662 цвет плафона/подвески Белый, цвет арматуры Хром',
     sourceUrl: 'https://www.globo-lighting.com/en/bailey-24662',
+    imageUrl: 'https://www.globo-lighting.com/media/3a/e5/c0/1716153934/24662_a.webp?ts=1781321095',
     dimensionsCm: { width: 14, depth: 14, height: 119 },
   },
   {
     externalId: '95754-1573969-17641737916743424000',
     title: 'Торшер Globo Anita 24703SR цвет плафона/подвески Коричневый, цвет арматуры Медь',
     sourceUrl: 'https://www.globo-lighting.com/en/anita-24703SR',
+    imageUrl: 'https://www.globo-lighting.com/media/f2/6e/87/1716086673/24703SR.webp?ts=1781436946',
     dimensionsCm: { width: 23, depth: 50, height: 155 },
   },
   {
@@ -380,6 +417,8 @@ const specs: LampSpec[] = [
       'Торшер Eurosvet Allata 2045/3F хром/белый торшер цвет плафона/подвески Белый, Прозрачный, цвет арматуры Хром',
     sourceUrl:
       'https://eurosvet.ru/catalog/torsheri/torsher-s-prozrachnym-abazhurom-2045-3f-khrom-belyy-00000046063',
+    imageUrl:
+      'https://cdn.minimir.ru/images/catalog/torsher-s-prozrachnym-abazhurom-2045-3f-khrom-belyy-00000046063_0001.jpg',
     dimensionsCm: { depth: 43, width: 43, height: 155 },
   },
   {
@@ -425,6 +464,7 @@ const specs: LampSpec[] = [
     externalId: '95754-1453383-5852857690636445000',
     title: 'Торшер Nowodvorski Lago 11676 высота 1630 мм',
     sourceUrl: 'https://solislux.eu/site_files/e2f98346e977b9373798e914f5324301.pdf#page=86',
+    imageUrl: 'https://nowodvorski.com/app/uploads/nowodvorski-pim-images/2026/08/11676.webp',
     baseCm: { diameter: 34 },
     dimensionsCm: { width: 46, height: 163, depth: 46 },
   },
