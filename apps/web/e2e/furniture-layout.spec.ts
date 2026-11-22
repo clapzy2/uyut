@@ -157,69 +157,95 @@ test.describe('синтетическая расстановка мебели, �
       .where(eq(shoppingListItems.id, itemId))
   })
 
-  test('показывает сохранённый торшер по паспорту в 2D и 3D без ручного ввода размеров', async ({
+  test('показывает сохранённые комод и торшеры по данным поставщика в 2D и 3D', async ({
     page,
   }) => {
     assert(db)
-    const externalId = '95754-1594417-5982982568465175000'
-    const lampTitle =
-      'Торшер Eglo Cremella 99507 цвет плафона/подвески Черный, цвет арматуры Черный'
-    const [inserted] = await db
-      .insert(catalogItems)
-      .values({
-        source: 'gdeslon',
-        externalId,
-        title: lampTitle,
+    const login = await page.request.post('/api/auth/sign-in/email', {
+      headers: { origin },
+      data: { email, password },
+    })
+    expect(login.status()).toBe(200)
+    for (const productCase of [
+      {
         category: 'lamp',
         subcategory: 'floorLamp',
-        priceKopecks: 10000,
-        affiliateUrl: 'https://example.test/lamp',
-        images: [],
-        contentHash: run,
-      })
-      .onConflictDoNothing()
-      .returning({ id: catalogItems.id })
-    try {
-      const [lamp] = await db
-        .select({ id: catalogItems.id })
-        .from(catalogItems)
-        .where(and(eq(catalogItems.source, 'gdeslon'), eq(catalogItems.externalId, externalId)))
-      assert(lamp)
-      await db
-        .update(shoppingListItems)
-        .set({
-          catalogItemId: lamp.id,
-          dimensionsCm: null,
-          placementCm: null,
-          operationClearanceCm: null,
+        externalId: '95754-1594417-5982982568465175000',
+        title: 'Торшер Eglo Cremella 99507 цвет плафона/подвески Черный, цвет арматуры Черный',
+        sourceUrl: 'https://tools.eglo.com/tds/eng-GB/99507',
+        baseLabel: 'Диаметр основания 25 см',
+      },
+      {
+        category: 'lamp',
+        subcategory: 'floorLamp',
+        externalId: '95754-1573868-1303370921062868000',
+        title: 'Торшер Globo Gianna 24099SB цвет плафона/подвески Черный, цвет арматуры Черный',
+        sourceUrl: 'https://globo-lighting.ba/proizvod/podna-lampa-gianna/',
+      },
+      {
+        category: 'storage',
+        subcategory: 'dresser',
+        title: 'Комод для хранения «Кельн», 3 ящика, 802×400×776 мм, цвет графит/дуб крафт',
+        sourceUrl:
+          'https://www.sima-land.ru/11086809/komod-dlya-hraneniya-keln-3-yaschika-802-400-776-mm-cvet-grafit-dub-kraft/',
+        externalId: '105470-11086809-2009130953372687000',
+      },
+    ] as const) {
+      const { externalId, title: productTitle, sourceUrl, category, subcategory } = productCase
+      const [inserted] = await db
+        .insert(catalogItems)
+        .values({
+          source: 'gdeslon',
+          externalId,
+          title: productTitle,
+          category,
+          subcategory,
+          priceKopecks: 10000,
+          affiliateUrl: 'https://example.test/product',
+          images: [],
+          contentHash: run,
         })
-        .where(eq(shoppingListItems.id, itemId))
-      const login = await page.request.post('/api/auth/sign-in/email', {
-        headers: { origin },
-        data: { email, password },
-      })
-      expect(login.status()).toBe(200)
-      await page.goto(`/projects/${projectId}/rooms/${roomId}`)
-      const plan = page.locator('#room-plan')
-      await expect(
-        plan.getByRole('button', { name: `Переместить: ${lampTitle}`, exact: true }),
-      ).toBeVisible()
-      await plan.getByRole('button', { name: 'Посмотреть мебель в объёме' }).click()
-      await expect(plan.locator('[data-volume-furniture]').first()).toBeVisible()
-      await plan.getByRole('button', { name: '3D-сцена' }).click()
-      await expect(plan.locator('canvas[data-scene-ready="true"]')).toBeVisible()
-      await page.goto(`/projects/${projectId}/summary`)
-      await expect(page.getByText('Диаметр основания 25 см', { exact: true }).first()).toBeVisible()
-      await expect(
-        page.getByRole('link', { name: 'Размеры у поставщика' }).first(),
-      ).toHaveAttribute('href', 'https://tools.eglo.com/tds/eng-GB/99507')
-      expect((await savedItem()).dimensionsCm).toBeNull()
-    } finally {
-      await db
-        .update(shoppingListItems)
-        .set({ catalogItemId: productId })
-        .where(eq(shoppingListItems.id, itemId))
-      if (inserted) await db.delete(catalogItems).where(eq(catalogItems.id, inserted.id))
+        .onConflictDoNothing()
+        .returning({ id: catalogItems.id })
+      try {
+        const [product] = await db
+          .select({ id: catalogItems.id })
+          .from(catalogItems)
+          .where(and(eq(catalogItems.source, 'gdeslon'), eq(catalogItems.externalId, externalId)))
+        assert(product)
+        await db
+          .update(shoppingListItems)
+          .set({
+            catalogItemId: product.id,
+            dimensionsCm: null,
+            placementCm: null,
+            operationClearanceCm: null,
+          })
+          .where(eq(shoppingListItems.id, itemId))
+        await page.goto(`/projects/${projectId}/rooms/${roomId}`)
+        const plan = page.locator('#room-plan')
+        await expect(
+          plan.getByRole('button', { name: `Переместить: ${productTitle}`, exact: true }),
+        ).toBeVisible()
+        await plan.getByRole('button', { name: 'Посмотреть мебель в объёме' }).click()
+        await expect(plan.locator('[data-volume-furniture]').first()).toBeVisible()
+        await plan.getByRole('button', { name: '3D-сцена' }).click()
+        await expect(plan.locator('canvas[data-scene-ready="true"]')).toBeVisible()
+        await page.goto(`/projects/${projectId}/summary`)
+        if (productCase.baseLabel)
+          await expect(page.getByText(productCase.baseLabel, { exact: true }).first()).toBeVisible()
+        else await expect(page.getByText(/^Диаметр основания/)).toHaveCount(0)
+        await expect(
+          page.getByRole('link', { name: 'Размеры у поставщика' }).first(),
+        ).toHaveAttribute('href', sourceUrl)
+        expect((await savedItem()).dimensionsCm).toBeNull()
+      } finally {
+        await db
+          .update(shoppingListItems)
+          .set({ catalogItemId: productId })
+          .where(eq(shoppingListItems.id, itemId))
+        if (inserted) await db.delete(catalogItems).where(eq(catalogItems.id, inserted.id))
+      }
     }
   })
 

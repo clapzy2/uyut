@@ -17,6 +17,24 @@ describe('размеры из паспорта торшера', () => {
     expect(gdeslonLampSpec('другой артикул', title)).toBeUndefined()
   })
 
+  it('различает вылет торшера VERDI и диаметр опоры', () => {
+    const spec = gdeslonLampSpec(
+      '95754-1454655-7239312851140980000',
+      'Торшер Arlight VERDI 58488 высота 1465 мм',
+    )
+    expect(spec?.baseCm).toEqual({ diameter: 25 })
+    expect(spec?.dimensionsCm).toEqual({ width: 25, depth: 37.3, height: 146.5 })
+  })
+
+  it('сохраняет только высоту LUNAR, у которого диаметр относится к вертикальному диску', () => {
+    const spec = gdeslonLampSpec(
+      '95754-1454431-17207002364087716000',
+      'Торшер Arlight LUNAR 56252 высота 1890 мм',
+    )
+    expect(spec?.dimensionsCm).toEqual({ height: 189 })
+    expect(spec?.baseCm).toBeUndefined()
+  })
+
   it('сохраняет только основание у торшера с регулируемой высотой и неизвестным вылетом', () => {
     const spec = gdeslonLampSpec('116336-765717-2892942192139467000', 'Торшер Lightstar 765717')
     expect(spec?.baseCm).toEqual({ diameter: 32 })

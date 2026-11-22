@@ -2,7 +2,7 @@ type LampSpec = {
   externalId: string
   title: string
   sourceUrl: string
-  baseCm: { diameter: number } | { width: number; depth: number }
+  baseCm?: { diameter: number } | { width: number; depth: number }
   dimensionsCm: { height?: number; width?: number; depth?: number }
 }
 
@@ -244,16 +244,16 @@ const specs: LampSpec[] = [
     externalId: '95754-1454952-16627568140959017000',
     title:
       'Торшер Lightstar Torino 615719 цвет плафона/подвески Прозрачный, Сталь, цвет арматуры Сталь',
-    sourceUrl: 'https://lightstar-shop.ru/torsher-lightstar-torino-615719',
+    sourceUrl: 'https://lightstar.ru/615719',
     baseCm: { diameter: 25 },
-    dimensionsCm: { height: 141 },
+    dimensionsCm: { width: 25, depth: 25, height: 141 },
   },
   {
     externalId: '95754-1455263-5399966341447857000',
     title: 'Торшер Lightstar Loft 765747 цвет плафона/подвески Черный, цвет арматуры Черный',
-    sourceUrl: 'https://lightstar-shop.ru/torsher-lightstar-loft-765747',
+    sourceUrl: 'https://lightstar.ru/765747',
     baseCm: { diameter: 25 },
-    dimensionsCm: { height: 153 },
+    dimensionsCm: { width: 25, height: 153 },
   },
   {
     externalId: '95754-1464550-1096436217204427800',
@@ -275,6 +275,175 @@ const specs: LampSpec[] = [
     sourceUrl: 'https://www.isonex.ru/upload/images_right_names/28467/0/0049990.jpeg',
     baseCm: { diameter: 24 },
     dimensionsCm: { width: 24, depth: 24, height: 146 },
+  },
+  {
+    externalId: '95754-1599667-11931080404202879000',
+    title: 'Торшер Citilux Томми CL102930 цвет плафона/подвески Светло-серый, цвет арматуры Хром',
+    sourceUrl: 'https://citilux.ru/store/cl102930/',
+    dimensionsCm: { height: 160, depth: 30, width: 30 },
+  },
+  {
+    externalId: '95754-1599668-15654640306091383000',
+    title: 'Торшер Citilux Томми CL102931 цвет плафона/подвески Прозрачный, цвет арматуры Хром',
+    sourceUrl: 'https://citilux.ru/store/cl102931/',
+    dimensionsCm: { height: 160, depth: 30, width: 30 },
+  },
+  {
+    externalId: '95754-1599669-14053212049606900000',
+    title: 'Торшер Citilux Томми CL102933 цвет плафона/подвески Бежевый, цвет арматуры Бронза',
+    sourceUrl: 'https://citilux.ru/store/cl102933/',
+    dimensionsCm: { height: 160, depth: 30, width: 30 },
+  },
+  {
+    externalId: '95754-1599724-4171254188527176000',
+    title: 'Торшер Citilux Берта CL126922 цвет плафона/подвески Белый, цвет арматуры Коричневый',
+    sourceUrl: 'https://citilux.ru/store/cl126922/',
+    dimensionsCm: { height: 156, depth: 22, width: 28 },
+  },
+  {
+    externalId: '95754-1456016-13300750928731515000',
+    title:
+      'Торшер Citilux ORTON CL202933 цвет плафона/подвески Светло-серый, Бежевый, цвет арматуры Черный',
+    sourceUrl: 'https://citilux.ru/store/cl202933/',
+    dimensionsCm: { height: 172, depth: 45, width: 45 },
+  },
+  {
+    externalId: '95754-1600249-13182841334259694000',
+    title:
+      'Торшер Citilux Мартин CL332991 цвет плафона/подвески Прозрачный, цвет арматуры Коричневый',
+    sourceUrl: 'https://citilux.ru/store/cl332991/',
+    dimensionsCm: { height: 170, depth: 40, width: 40 },
+  },
+  {
+    externalId: '95754-1600250-17357118070640278000',
+    title: 'Торшер Citilux Мартин CL332992 цвет плафона/подвески Бежевый, цвет арматуры Коричневый',
+    sourceUrl: 'https://citilux.ru/store/cl332992/',
+    dimensionsCm: { height: 170, depth: 40, width: 40 },
+  },
+  {
+    externalId: '95754-1600459-17330086723483870000',
+    title: 'Торшер Citilux Ровена CL427910 цвет плафона/подвески Белый, цвет арматуры Белый',
+    sourceUrl: 'https://citilux.ru/store/cl427910/',
+    dimensionsCm: { height: 178, depth: 40, width: 40 },
+  },
+  {
+    externalId: '95754-1600545-11055369386033768000',
+    title: 'Торшер Citilux Аврора CL463910 цвет плафона/подвески Белый, цвет арматуры Хром',
+    sourceUrl: 'https://citilux.ru/store/cl463910/',
+    dimensionsCm: { height: 158, depth: 40, width: 40 },
+  },
+  {
+    externalId: '95754-1573964-5749320479754701000',
+    title: 'Торшер Globo Bailey 24662 цвет плафона/подвески Белый, цвет арматуры Хром',
+    sourceUrl: 'https://www.globo-lighting.com/en/bailey-24662',
+    dimensionsCm: { width: 14, depth: 14, height: 119 },
+  },
+  {
+    externalId: '95754-1573969-17641737916743424000',
+    title: 'Торшер Globo Anita 24703SR цвет плафона/подвески Коричневый, цвет арматуры Медь',
+    sourceUrl: 'https://www.globo-lighting.com/en/anita-24703SR',
+    dimensionsCm: { width: 23, depth: 50, height: 155 },
+  },
+  {
+    externalId: '95754-1573868-1303370921062868000',
+    title: 'Торшер Globo Gianna 24099SB цвет плафона/подвески Черный, цвет арматуры Черный',
+    sourceUrl: 'https://globo-lighting.ba/proizvod/podna-lampa-gianna/',
+    dimensionsCm: { width: 20, depth: 47.7, height: 139 },
+  },
+  {
+    externalId: '95754-1609358-8507826857238873000',
+    title:
+      'Торшер Lussole LSP-0590 цвет плафона/подвески Бежевый, цвет арматуры Коричневый, Черный',
+    sourceUrl: 'https://www.lampadia.ru/product/torsher-lsp-0590-lussole/',
+    dimensionsCm: { width: 46, depth: 46, height: 153 },
+  },
+  {
+    externalId: '95754-1454653-15228172501580095000',
+    title: 'Торшер Arlight OTTORI 58485 высота 1252 мм',
+    sourceUrl: 'https://arlight.ru/catalog/product/058485/',
+    baseCm: { diameter: 21 },
+    dimensionsCm: { depth: 24.7, width: 21, height: 125.2 },
+  },
+  {
+    externalId: '95754-1454655-7239312851140980000',
+    title: 'Торшер Arlight VERDI 58488 высота 1465 мм',
+    sourceUrl: 'https://arlight.ru/catalog/product/058488/',
+    baseCm: { diameter: 25 },
+    dimensionsCm: { depth: 37.3, width: 25, height: 146.5 },
+  },
+  {
+    externalId: '95754-1572433-18092726708121885000',
+    title:
+      'Торшер Eurosvet Allata 2045/3F хром/белый торшер цвет плафона/подвески Белый, Прозрачный, цвет арматуры Хром',
+    sourceUrl:
+      'https://eurosvet.ru/catalog/torsheri/torsher-s-prozrachnym-abazhurom-2045-3f-khrom-belyy-00000046063',
+    dimensionsCm: { depth: 43, width: 43, height: 155 },
+  },
+  {
+    externalId: '95644-18570423-8618038675254193000',
+    title: 'Торшер светодиодный Camelion KD-795 цвет белый',
+    sourceUrl: 'https://petrovich.ru/product/993348/',
+    baseCm: { diameter: 21 },
+    dimensionsCm: { depth: 25, width: 21, height: 150 },
+  },
+  {
+    externalId: '95644-18570431-9063946197334984000',
+    title: 'Торшер светодиодный Camelion KD-795 цвет чёрный',
+    sourceUrl:
+      'https://www.vseinstrumenti.ru/product/napolnyj-svetilnik-chernyj-led-torsher-6vt-230v-sensornoe-vklyuchenie-4-urovnya-yarkosti-4000k-camelion-kd-795-c02-12495-805758/',
+    baseCm: { diameter: 21 },
+    dimensionsCm: { depth: 25, width: 21, height: 150 },
+  },
+  {
+    externalId: '118488-578055-837771993042939500',
+    title: 'Торшер',
+    sourceUrl: 'https://odnajdy.ru/product/torsher-derevo-krashenie-19579/',
+    dimensionsCm: { width: 47, depth: 47, height: 143 },
+  },
+  {
+    externalId: '118488-495071-10434093750997776000',
+    title: 'Лампа напольная (торшер)',
+    sourceUrl: 'https://odnajdy.ru/product/lampa-napolnaya-torsher-8946/',
+    dimensionsCm: { width: 59, depth: 59, height: 159.5 },
+  },
+  {
+    externalId: '95754-1454431-17207002364087716000',
+    title: 'Торшер Arlight LUNAR 56252 высота 1890 мм',
+    sourceUrl: 'https://arlight.ru/catalog/product/056252/',
+    dimensionsCm: { height: 189 },
+  },
+  {
+    externalId: '95754-1454432-8824861130809120000',
+    title: 'Торшер Arlight LUNAR 56253 высота 1890 мм',
+    sourceUrl: 'https://arlight.ru/catalog/product/056253/',
+    dimensionsCm: { height: 189 },
+  },
+  {
+    externalId: '95754-1453383-5852857690636445000',
+    title: 'Торшер Nowodvorski Lago 11676 высота 1630 мм',
+    sourceUrl: 'https://solislux.eu/site_files/e2f98346e977b9373798e914f5324301.pdf#page=86',
+    baseCm: { diameter: 34 },
+    dimensionsCm: { width: 46, height: 163, depth: 46 },
+  },
+  {
+    externalId: '105470-11021035-8170698035002363000',
+    title: 'Торшер TR97662, 1хE27, 40 Вт, 145×14 см, зелёный',
+    sourceUrl:
+      'https://www.ambrella.biz/catalog/dekorativnyy_svet/napolnye_svetilniki_torsher/TR97662/',
+    dimensionsCm: { width: 22, height: 145 },
+  },
+  {
+    externalId: '105470-11021037-12584757854605599000',
+    title: 'Торшер TR97693, 1хE27, 40 Вт, 154×15 см, зелёный',
+    sourceUrl:
+      'https://www.ambrella.biz/catalog/dekorativnyy_svet/napolnye_svetilniki_torsher/TR97693/',
+    dimensionsCm: { width: 22, height: 154 },
+  },
+  {
+    externalId: '116336-we10706105-617393368287883000',
+    title: 'Торшер Wertmark WE107.06.105',
+    sourceUrl: 'https://wertmark-shop.ru/shop/floor-lamps/2367/',
+    dimensionsCm: { width: 40, height: 167 },
   },
 ]
 
