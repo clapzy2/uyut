@@ -408,13 +408,15 @@ describe('project PDF template', () => {
       },
     ]
     const html = renderProjectHtml(data, { fontCss: '' })
-    expect(html).toContain('<svg viewBox="0 0 400 300"')
+    expect(html).toContain('<svg viewBox="-3 -3 406 306"')
     expect(html).toContain('<title>Короб &lt;тест&gt;</title>')
     expect(html).toContain('points="10.0,10.0 20.0,10.0 20.0,20.0 10.0,20.0"')
     room.plan.keepClearZones[0]?.polygon.push({ xCm: -10, yCm: -20 }, { xCm: 420, yCm: 310 })
-    expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="-10 -20 430 330"')
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="-13 -23 436 336"')
     room.plan.keepClearZones = []
-    expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="0 0 400 300"')
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="-3 -3 406 306"')
+    room.plan.floorPolygon[2] = { xCm: 400, yCm: 300.8 }
+    expect(renderProjectHtml(data, { fontCss: '' })).toContain('<svg viewBox="-3 -3 406 306.8"')
   })
 
   it('объясняет, какие выбранные товары не размещены без габаритов', () => {
@@ -595,7 +597,7 @@ describe('project PDF template', () => {
     const html = renderProjectHtml(data, { fontCss: '' })
     expect(html).toContain(room.plan.safetySummary.title)
     expect(html).toContain(room.plan.safetySummary.detail)
-    expect(html).not.toContain('<svg viewBox="0 0 400')
+    expect(html).not.toContain('<svg viewBox="-3 -3 406')
   })
 
   it('labels a measured room without furniture or a floor contour as measurements, not a 2D drawing', () => {
@@ -634,11 +636,11 @@ describe('project PDF template', () => {
   it('печатает вид сверху вектором, а не картинкой, и говорит про проход', () => {
     const html = renderProjectHtml(sample('paid'), { fontCss: '' })
     expect(html).toContain('Вид сверху · 340 × 540 см')
-    expect(html).toContain('<svg viewBox="0 0 400')
+    expect(html).toContain('<svg viewBox="-3 -3 406')
     expect(html).toContain('проход посередине')
     const planPage = html.split('<section class="page plan-page">')[1]?.split('</section>')[0]
     expect(planPage).toContain('Гостиная · расстановка')
-    expect(planPage).toContain('<svg viewBox="0 0 400')
+    expect(planPage).toContain('<svg viewBox="-3 -3 406')
     expect(planPage).toContain('Для проверки доступа укажите двери и окна на плане')
   })
 
@@ -661,7 +663,7 @@ describe('project PDF template', () => {
     expect(html).not.toContain('Вид сверху · 300 × 260 см')
     expect(html).toContain('не встаёт ни к одной стене')
     // Рисовать нечего, рамку пустой комнаты не печатаем
-    expect(html).not.toContain('<svg viewBox="0 0 400')
+    expect(html).not.toContain('<svg viewBox="-3 -3 406')
   })
 
   it('splits the summary into a headline and the rest of the text', () => {
