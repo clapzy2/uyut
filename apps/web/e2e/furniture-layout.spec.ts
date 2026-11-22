@@ -12,7 +12,7 @@ import {
   shoppingLists,
   users,
 } from '@uyut/db'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { realisticBalconyApartment } from '../../../jobs/fixtures/realistic-balcony-apartment'
 import { hashPassword } from '../lib/password'
 
@@ -155,6 +155,72 @@ test.describe('синтетическая расстановка мебели, �
         placementCm: { xCm: 0, yCm: 110, rotation: 0, frontDirection: 'right' },
       })
       .where(eq(shoppingListItems.id, itemId))
+  })
+
+  test('показывает сохранённый торшер по паспорту в 2D и 3D без ручного ввода размеров', async ({
+    page,
+  }) => {
+    assert(db)
+    const externalId = '95754-1594417-5982982568465175000'
+    const lampTitle =
+      'Торшер Eglo Cremella 99507 цвет плафона/подвески Черный, цвет арматуры Черный'
+    const [inserted] = await db
+      .insert(catalogItems)
+      .values({
+        source: 'gdeslon',
+        externalId,
+        title: lampTitle,
+        category: 'lamp',
+        subcategory: 'floorLamp',
+        priceKopecks: 10000,
+        affiliateUrl: 'https://example.test/lamp',
+        images: [],
+        contentHash: run,
+      })
+      .onConflictDoNothing()
+      .returning({ id: catalogItems.id })
+    try {
+      const [lamp] = await db
+        .select({ id: catalogItems.id })
+        .from(catalogItems)
+        .where(and(eq(catalogItems.source, 'gdeslon'), eq(catalogItems.externalId, externalId)))
+      assert(lamp)
+      await db
+        .update(shoppingListItems)
+        .set({
+          catalogItemId: lamp.id,
+          dimensionsCm: null,
+          placementCm: null,
+          operationClearanceCm: null,
+        })
+        .where(eq(shoppingListItems.id, itemId))
+      const login = await page.request.post('/api/auth/sign-in/email', {
+        headers: { origin },
+        data: { email, password },
+      })
+      expect(login.status()).toBe(200)
+      await page.goto(`/projects/${projectId}/rooms/${roomId}`)
+      const plan = page.locator('#room-plan')
+      await expect(
+        plan.getByRole('button', { name: `Переместить: ${lampTitle}`, exact: true }),
+      ).toBeVisible()
+      await plan.getByRole('button', { name: 'Посмотреть мебель в объёме' }).click()
+      await expect(plan.locator('[data-volume-furniture]').first()).toBeVisible()
+      await plan.getByRole('button', { name: '3D-сцена' }).click()
+      await expect(plan.locator('canvas[data-scene-ready="true"]')).toBeVisible()
+      await page.goto(`/projects/${projectId}/summary`)
+      await expect(page.getByText('Диаметр основания 25 см', { exact: true }).first()).toBeVisible()
+      await expect(
+        page.getByRole('link', { name: 'Размеры у поставщика' }).first(),
+      ).toHaveAttribute('href', 'https://tools.eglo.com/tds/eng-GB/99507')
+      expect((await savedItem()).dimensionsCm).toBeNull()
+    } finally {
+      await db
+        .update(shoppingListItems)
+        .set({ catalogItemId: productId })
+        .where(eq(shoppingListItems.id, itemId))
+      if (inserted) await db.delete(catalogItems).where(eq(catalogItems.id, inserted.id))
+    }
   })
 
   test('сохраняет только явно заданное открывание и удаляет его через второй редактор', async ({

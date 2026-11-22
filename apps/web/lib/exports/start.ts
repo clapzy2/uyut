@@ -3,7 +3,7 @@ import type { ExportKind, ExportOptions } from '@uyut/db'
 import { recordAudit } from '@/lib/audit'
 import { attachRun, claimExport, getExport, markExportFailed } from '@/lib/exports/repository'
 
-import { ExportStatusUnknownError, exportRunTag } from './run-status'
+import { ExportStatusUnknownError, exportRunTag, exportTaskId } from './run-status'
 
 export type ExportRun = {
   exportId: string
@@ -26,14 +26,21 @@ export async function startExport(
     const current = await getExport(userId, created.id)
     // Сборка могла закончиться, пока повторный запрос проверял очередь.
     // Показываем её результат через проверку статуса, а не запускаем ещё один PDF.
-    if (current.status !== 'failed') throw new ExportStatusUnknownError()
+    if (current.status !== 'failed') {
+      if (Boolean(current.options?.previewWithoutBrief) !== Boolean(options.previewWithoutBrief)) {
+        throw new ExportStatusUnknownError(
+          'Уже запущена сборка PDF в другом режиме. Проверьте её статус и затем выберите нужный режим.',
+        )
+      }
+      throw new ExportStatusUnknownError()
+    }
     created = await claimExport(userId, projectId, options)
     if (created.existing) throw new ExportStatusUnknownError()
   }
   let handle: Awaited<ReturnType<typeof tasks.trigger>>
   try {
     handle = await tasks.trigger(
-      'export-pdf',
+      exportTaskId(options.previewWithoutBrief),
       { exportId: created.id },
       { idempotencyKey: created.id, tags: [exportRunTag(created.id)] },
       { retry: { maxAttempts: 1 } },

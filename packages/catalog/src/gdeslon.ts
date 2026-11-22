@@ -33,6 +33,10 @@ function array(value: unknown): unknown[] {
   return value === undefined ? [] : Array.isArray(value) ? value : [value]
 }
 
+function normalizedUnit(unit: string): string {
+  return unit.toLowerCase().replace('мм', 'mm').replace('см', 'cm')
+}
+
 /** Ответ поиска ограничен страницей; XML-парсер сохраняет CDATA, атрибуты и сущности. */
 export function parseGdeslonOffers(xml: string): GdeslonOffer[] {
   if (XMLValidator.validate(xml) !== true) {
@@ -64,7 +68,29 @@ export function parseGdeslonOffers(xml: string): GdeslonOffer[] {
       if (!raw || typeof raw !== 'object') continue
       const param = raw as Record<string, unknown>
       const name = text(param['@_name'])
-      if (name) params.set(name, text(param))
+      if (!name) continue
+      const value = text(param)
+      const unit = text(param['@_unit']).toLowerCase()
+      // В YML единица может находиться в атрибуте отдельно от значения.
+      // Без неё глубина 450 мм ошибочно проходит как 450 см.
+      const axis =
+        /^(?:ширина|глубина|высота|width|depth|height)[\s.,:;([{_-]*(мм|см|mm|cm)?[\s)\]}]*$/i.exec(
+          name,
+        )
+      if (unit && axis) {
+        if (!/^(?:мм|см|mm|cm)$/.test(unit)) continue
+        const scalar = /^(\d+(?:[.,]\d+)?)\s*(мм|см|mm|cm)?$/i.exec(value)
+        if (!scalar) continue
+        if (
+          [axis[1], scalar[2]].some(
+            (label) => label && normalizedUnit(label) !== normalizedUnit(unit),
+          )
+        )
+          continue
+        params.set(name, `${scalar[1]} ${unit}`)
+      } else {
+        params.set(name, value)
+      }
     }
     const pictures = array(offer.picture).map(text).filter(Boolean)
     const advertising = offer.tagging_ads as Record<string, unknown> | undefined

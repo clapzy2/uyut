@@ -7,6 +7,41 @@ const product = (dimensionsCm?: DimensionsCm) => ({
 })
 
 describe('effectiveSize', () => {
+  const dresser = {
+    source: 'gdeslon' as const,
+    externalId: '105470-10392744-3309390823410556000',
+    title: 'Комод пеленальный детский ИНКАНТО OSKAR V 800/5, 84×45×101 см, 5 ящиков, белый',
+    attributes: null,
+  }
+
+  it('подставляет паспорт конкретного SKU в сохранённую покупку и сохраняет уточнение владельца', () => {
+    const reading = effectiveSizeReading({ dimensionsCm: { depth: 46 } }, dresser)
+    expect(reading.dimensionsCm).toEqual({ width: 84, depth: 46, height: 101 })
+    expect(reading.source).toBe('mixed')
+    expect(reading.specificationUrl).toContain('sima-land.ru/10392744/')
+  })
+
+  it('удерживает паспорт при смене товара, источника или конфликте с новым фидом', () => {
+    for (const product of [
+      { ...dresser, title: 'Другой цвет' },
+      { ...dresser, externalId: 'other' },
+      { ...dresser, source: 'divan' as const },
+    ]) {
+      expect(effectiveSize({ dimensionsCm: null }, product)).toBeNull()
+    }
+    const revised = effectiveSizeReading(
+      { dimensionsCm: null },
+      {
+        ...dresser,
+        attributes: {
+          dimensionsCm: { width: 120 },
+          dimensionsSource: { width: 'store-parameters' },
+        },
+      },
+    )
+    expect(revised.dimensionsCm).toEqual({ width: 120 })
+    expect(revised.specificationUrl).toBeUndefined()
+  })
   it('вписанное человеком главнее карточки магазина', () => {
     const size = effectiveSize(
       { dimensionsCm: { width: 220, depth: 95 } },

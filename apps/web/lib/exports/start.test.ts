@@ -37,6 +37,20 @@ describe('запуск PDF и граница внешней очереди', () 
     mocks.token.mockResolvedValue('scoped-token')
   })
 
+  it('предпросмотр направляет только в обработчик без генерации', async () => {
+    await startExport('owner', 'project', { previewWithoutBrief: true })
+    expect(mocks.trigger.mock.calls[0]?.[0]).toBe('export-pdf-preview')
+  })
+
+  it('при активном обычном экспорте сообщает, что режим отличается', async () => {
+    mocks.create.mockResolvedValue({ id: 'export', kind: 'free', existing: true })
+    mocks.get.mockResolvedValue({ status: 'running', options: {} })
+    await expect(startExport('owner', 'project', { previewWithoutBrief: true })).rejects.toThrow(
+      'в другом режиме',
+    )
+    expect(mocks.trigger).not.toHaveBeenCalled()
+  })
+
   it('не отправляет задачу без разрешённой записи экспорта', async () => {
     const denied = new Error('Экспорт не найден')
     mocks.create.mockRejectedValue(denied)

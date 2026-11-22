@@ -19,15 +19,25 @@ describe('PDF queue reconciliation', () => {
       expect((await exportQueueStatus('export', 'run')).terminal).toBe(true)
     },
   )
-  it('finds an accepted request by exact export tag', async () => {
-    queue.list.mockResolvedValue({ data: [{ id: 'found' }] })
-    queue.retrieve.mockResolvedValue({ status: 'EXECUTING' })
-    expect(await exportQueueStatus('export', null)).toEqual({ runId: 'found', terminal: false })
-    expect(queue.list).toHaveBeenCalledWith(
-      { taskIdentifier: 'export-pdf', tag: 'project-export:export', limit: 2 },
-      { retry: { maxAttempts: 1 } },
-    )
-  })
+  it.each([false, true])(
+    'finds an accepted request by exact export tag, preview %s',
+    async (preview) => {
+      queue.list.mockResolvedValue({ data: [{ id: 'found' }] })
+      queue.retrieve.mockResolvedValue({ status: 'EXECUTING' })
+      expect(await exportQueueStatus('export', null, preview)).toEqual({
+        runId: 'found',
+        terminal: false,
+      })
+      expect(queue.list).toHaveBeenCalledWith(
+        {
+          taskIdentifier: preview ? 'export-pdf-preview' : 'export-pdf',
+          tag: 'project-export:export',
+          limit: 2,
+        },
+        { retry: { maxAttempts: 1 } },
+      )
+    },
+  )
   it.each([{ data: [] }, { data: [{ id: 'a' }, { id: 'b' }] }])(
     'keeps ambiguous tag lookup unknown',
     async ({ data }) => {

@@ -437,6 +437,21 @@ describe('мебель комнат в общем объёме квартиры'
     expect(result.notes[1]).toContain('нет комнаты')
   })
 
+  it('после переименования пропускает только комнату, потерявшую связь со схемой', () => {
+    const result = apartmentVolume(geometry(), [
+      { roomId: 'living', roomName: 'Кабинет', layout: layout() },
+      { roomId: 'kitchen', roomName: 'Кухня', layout: layout(300) },
+    ])
+    expect(result.model?.rooms?.map((room) => room.id)).toEqual(['kitchen'])
+    expect(result.model?.furniture?.map((item) => item.roomId)).toEqual([
+      'kitchen',
+      'kitchen',
+      'kitchen',
+    ])
+    expect(result.notes).toHaveLength(1)
+    expect(result.notes[0]).toContain('нет комнаты')
+  })
+
   it('сохраняет ступенчатую комнату и отклоняет другую форму с тем же габаритом', () => {
     const source = geometry()
     const floor = [

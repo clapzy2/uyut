@@ -3,10 +3,10 @@ import { getEnv } from '@/lib/env'
 import { isTerminalRunStatus } from '@/lib/queue/run-status'
 
 export class ExportStatusUnknownError extends Error {
-  constructor() {
-    super(
-      'Статус сборки пока не подтверждён. Сборка могла начаться. Сначала проверьте статус, прежде чем запускать новую.',
-    )
+  constructor(
+    message = 'Статус сборки пока не подтверждён. Сборка могла начаться. Сначала проверьте статус, прежде чем запускать новую.',
+  ) {
+    super(message)
   }
 }
 
@@ -14,7 +14,15 @@ export function exportRunTag(exportId: string): string {
   return `project-export:${exportId}`
 }
 
-export async function exportQueueStatus(exportId: string, savedRunId: string | null) {
+export function exportTaskId(previewWithoutBrief = false) {
+  return previewWithoutBrief ? 'export-pdf-preview' : 'export-pdf'
+}
+
+export async function exportQueueStatus(
+  exportId: string,
+  savedRunId: string | null,
+  previewWithoutBrief = false,
+) {
   if (!getEnv().TRIGGER_SECRET_KEY) throw new ExportStatusUnknownError()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -23,7 +31,11 @@ export async function exportQueueStatus(exportId: string, savedRunId: string | n
         let runId = savedRunId
         if (!runId) {
           const page = await runs.list(
-            { taskIdentifier: 'export-pdf', tag: exportRunTag(exportId), limit: 2 },
+            {
+              taskIdentifier: exportTaskId(previewWithoutBrief),
+              tag: exportRunTag(exportId),
+              limit: 2,
+            },
             { retry: { maxAttempts: 1 } },
           )
           if (page.data.length !== 1 || !page.data[0]) throw new ExportStatusUnknownError()

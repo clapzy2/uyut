@@ -7,6 +7,7 @@ type WorkerRun = (payload: ExportPayload) => Promise<unknown>
 
 const mocks = vi.hoisted(() => ({
   run: undefined as WorkerRun | undefined,
+  preview: undefined as WorkerRun | undefined,
   select: vi.fn(),
   selectLimit: vi.fn(),
   update: vi.fn(),
@@ -29,8 +30,9 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@trigger.dev/sdk', () => ({
-  task: (configuration: { run: WorkerRun }) => {
-    mocks.run = configuration.run
+  task: (configuration: { id: string; run: WorkerRun }) => {
+    if (configuration.id === 'export-pdf-preview') mocks.preview = configuration.run
+    else mocks.run = configuration.run
     return configuration
   },
   metadata: { set: mocks.publish },
@@ -131,6 +133,17 @@ describe('PDF-обработчик: обязательное задание в �
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
     vi.unstubAllGlobals()
+  })
+
+  it('печатает выбранный предпросмотр без генерации ТЗ даже при настроенном Fal', async () => {
+    vi.stubEnv('FAL_KEY', 'test-key')
+    mocks.selectLimit.mockResolvedValueOnce([
+      { id: exportId, projectId, kind: 'free', options: { previewWithoutBrief: true } },
+    ])
+    await expect(mocks.preview?.({ exportId })).resolves.toMatchObject({ exportId, pages: 1 })
+    expect(mocks.createBriefGenerator).not.toHaveBeenCalled()
+    expect(mocks.putObject).toHaveBeenCalledOnce()
+    expect(mocks.fetch).not.toHaveBeenCalled()
   })
 
   it('возвращает уже готовый PDF без повторной модели и печати', async () => {

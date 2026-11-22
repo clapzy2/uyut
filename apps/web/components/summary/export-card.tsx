@@ -129,6 +129,7 @@ function exportMeta(item: ExportView): string {
   return [
     item.pages ? `${item.pages} стр.` : null,
     item.durationMs ? `${Math.max(1, Math.round(item.durationMs / 1000))} с` : null,
+    item.options?.previewWithoutBrief ? 'без задания для мастера' : null,
     item.kind === 'free' ? 'с водяным знаком' : 'без водяного знака',
   ]
     .filter(Boolean)
@@ -184,6 +185,7 @@ export function ExportCard({
   children?: ReactNode
 }) {
   const router = useRouter()
+  const [previewWithoutBrief, setPreviewWithoutBrief] = useState(false)
   const [includeClientName, setIncludeClientName] = useState(false)
   const [includeAddress, setIncludeAddress] = useState(false)
   const [includePhone, setIncludePhone] = useState(false)
@@ -213,7 +215,12 @@ export function ExportCard({
     try {
       const result = await exportProjectPdf({
         projectId,
-        options: { includeClientName, includeAddress, includePhone },
+        options: {
+          ...(previewWithoutBrief ? { previewWithoutBrief: true } : {}),
+          includeClientName,
+          includeAddress,
+          includePhone,
+        },
         contact: { clientName, address, phone },
       })
       if (!result.ok) {
@@ -381,6 +388,14 @@ export function ExportCard({
           </div>
         ) : null}
       </fieldset>
+
+      <Checkbox
+        id="export-preview-without-brief"
+        label={<span className="text-[14px]">Предпросмотр с водяным знаком без генерации ТЗ</span>}
+        checked={previewWithoutBrief}
+        disabled={busy || run !== null || waitingForStatus}
+        onChange={(event) => setPreviewWithoutBrief(event.currentTarget.checked)}
+      />
 
       <div className="mt-5 flex flex-col gap-4">
         <FormError message={error} />

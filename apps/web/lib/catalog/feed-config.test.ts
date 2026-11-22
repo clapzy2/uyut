@@ -6,7 +6,11 @@ vi.mock('@trigger.dev/sdk', () => ({
   task: vi.fn((definition) => definition),
 }))
 
-import { configuredFeeds, refreshPartnerCatalog } from '../../../../jobs/src/index-catalog'
+import {
+  assertPartnerFeedsRefreshed,
+  configuredFeeds,
+  refreshPartnerCatalog,
+} from '../../../../jobs/src/index-catalog'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -62,5 +66,17 @@ describe('настройки партнёрских фидов', () => {
     expect(configuredFeeds({ ...env, ADMITAD_FEED_BESTMEBELSHOP_PAUSED: '0' })).toEqual([
       { source: 'bestmebelshop', url: env.ADMITAD_FEED_BESTMEBELSHOP_URL },
     ])
+  })
+
+  it('считает ночной проход неуспешным при отказе любого настроенного фида', () => {
+    expect(() =>
+      assertPartnerFeedsRefreshed([
+        { source: 'askona', warning: 'Обновление не завершено; секретный URL сохранён' },
+        { source: 'divan' },
+        { source: 'hoff', warning: 'Товары обновлены, но отсутствующие не скрыты' },
+      ]),
+    ).toThrow('Ночное обновление фидов не завершено: askona, hoff')
+    expect(() => assertPartnerFeedsRefreshed([{ source: 'divan' }])).not.toThrow()
+    expect(() => assertPartnerFeedsRefreshed([])).not.toThrow()
   })
 })

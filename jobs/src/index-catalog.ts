@@ -37,6 +37,16 @@ export function configuredFeeds(
   return feeds
 }
 
+/** Не оставляем ночной запуск зелёным, если хотя бы один настроенный фид не обновился. */
+export function assertPartnerFeedsRefreshed(
+  feeds: Array<{ source: string; warning?: string }>,
+): void {
+  const failedFeeds = feeds.filter((feed) => feed.warning).map((feed) => feed.source)
+  if (failedFeeds.length > 0) {
+    throw new Error(`Ночное обновление фидов не завершено: ${failedFeeds.join(', ')}`)
+  }
+}
+
 async function fetchFeed(url: string): Promise<Response> {
   // Крупные российские фиды могут весить десятки мегабайт и идти из Trigger.dev Cloud
   // заметно дольше двух минут. Задача ограничена 30 минутами, поэтому оставляем ей запас
@@ -240,6 +250,7 @@ export const indexCatalog = schedules.task({
   id: 'index-catalog',
   cron: '0 3 * * *',
   maxDuration: 1800,
+  retry: { maxAttempts: 1 },
   run: async () => {
     const startedAt = Date.now()
     const feeds = await syncFeeds()
@@ -261,6 +272,7 @@ export const indexCatalog = schedules.task({
     if (gdeslonReport.status === 'failed') {
       throw new Error('Ночное обновление Gdeslon не завершено; прежний каталог сохранён')
     }
+    assertPartnerFeedsRefreshed(feeds)
     return {
       feeds,
       gdeslon: gdeslonReport,

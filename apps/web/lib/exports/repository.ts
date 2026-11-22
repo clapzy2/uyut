@@ -60,7 +60,11 @@ async function reconcile(rows: Array<typeof projectExports.$inferSelect>) {
   return Promise.all(
     rows.map(async (row) => {
       if (row.status !== 'pending' && row.status !== 'running') return row
-      const status = await exportQueueStatus(row.id, row.runId).catch(() => null)
+      const status = await exportQueueStatus(
+        row.id,
+        row.runId,
+        row.options?.previewWithoutBrief,
+      ).catch(() => null)
       const upload = !status || status.terminal ? await recoverableUpload(row) : 'legacy'
       if (upload === 'ready' && row.pdfKey) {
         await getDb()
@@ -147,7 +151,10 @@ export async function createExport(
   options: ExportOptions,
 ): Promise<{ id: string; kind: ExportKind }> {
   const project = await assertOwner(userId, projectId)
-  const kind: ExportKind = project.isPaid || (await getPlan(userId)) === 'pro' ? 'paid' : 'free'
+  const kind: ExportKind =
+    !options.previewWithoutBrief && (project.isPaid || (await getPlan(userId)) === 'pro')
+      ? 'paid'
+      : 'free'
   const [row] = await getDb()
     .insert(projectExports)
     .values({ projectId: project.id, kind, options })
@@ -160,7 +167,10 @@ export async function createExport(
 
 export async function claimExport(userId: string, projectId: string, options: ExportOptions) {
   const project = await assertOwner(userId, projectId)
-  const kind: ExportKind = project.isPaid || (await getPlan(userId)) === 'pro' ? 'paid' : 'free'
+  const kind: ExportKind =
+    !options.previewWithoutBrief && (project.isPaid || (await getPlan(userId)) === 'pro')
+      ? 'paid'
+      : 'free'
   return getDb().transaction(async (tx) => {
     await tx
       .select({ id: projects.id })
