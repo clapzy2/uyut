@@ -1,4 +1,4 @@
-import { subcategoryForLabel, subcategoryFromText } from '@uyut/catalog'
+import { categoryFromText, subcategoryForLabel, subcategoryFromText } from '@uyut/catalog'
 import { describe, expect, it } from 'vitest'
 
 describe('subcategoryFromText', () => {
@@ -29,6 +29,9 @@ describe('subcategoryFromText', () => {
   })
 
   it('шкаф, комод и стеллаж различаются', () => {
+    expect(categoryFromText('Обувница Авильтон')).toBe('storage')
+    expect(subcategoryFromText('storage', 'Обувница Авильтон', 'Прихожие / Комоды')).toBe('cabinet')
+    expect(subcategoryFromText('storage', 'Комод Анджи', 'Обувницы и комоды')).toBe('dresser')
     expect(subcategoryFromText('storage', 'Шкаф распашной Ikea Ivar')).toBe('wardrobe')
     expect(subcategoryFromText('storage', 'Комод «Кельн», 3 ящика')).toBe('dresser')
     expect(subcategoryFromText('storage', 'Стеллаж-перегородка «Ольга»')).toBe('shelving')

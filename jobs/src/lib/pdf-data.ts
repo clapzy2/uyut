@@ -685,6 +685,7 @@ export async function buildPdfData(input: {
         row.product.brand,
         offer.variant?.color,
         dimensionLabels.join(', '),
+        sizeReading.baseLabel,
         dimensionLabels.length
           ? itemSizeSourceLabel(sizeReading)
           : 'габариты не указаны — проверьте перед покупкой',

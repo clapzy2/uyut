@@ -62,11 +62,10 @@ function countPages(pdf: Buffer): number {
   return matches ? matches.length : 0
 }
 
-export const exportPdf = task({
-  id: 'export-pdf',
+const pdfTask = {
   maxDuration: 300,
   retry: { maxAttempts: 1 },
-  run: async (raw: ExportPdfPayload) => {
+  run: async (raw: ExportPdfPayload, previewOnly: boolean) => {
     const { exportId } = payloadSchema.parse(raw)
     const database = db()
     const started = Date.now()
@@ -77,6 +76,9 @@ export const exportPdf = task({
       .limit(1)
     if (!row) {
       throw new Error(`экспорт ${exportId} не найден`)
+    }
+    if (previewOnly !== (row.kind === 'free' && row.options?.previewWithoutBrief === true)) {
+      throw new Error('Режим задания не совпадает с сохранённым экспортом')
     }
     if (row.status === 'ready' && row.pdfKey) {
       return { exportId, pdfKey: row.pdfKey, pages: row.pages, durationMs: row.durationMs }
@@ -117,6 +119,7 @@ export const exportPdf = task({
         brief: ContractorBrief | null
         error?: string
       }> => {
+        if (row.kind === 'free' && row.options?.previewWithoutBrief) return { brief: null }
         const cached = await cachedBrief(database, row.projectId, hash, exportId)
         if (cached) {
           logger.info('brief reused from cache', { hash })
@@ -245,4 +248,16 @@ export const exportPdf = task({
       throw error
     }
   },
+}
+
+export const exportPdf = task({
+  ...pdfTask,
+  id: 'export-pdf',
+  run: (payload: ExportPdfPayload) => pdfTask.run(payload, false),
+})
+
+export const exportPdfPreview = task({
+  ...pdfTask,
+  id: 'export-pdf-preview',
+  run: (payload: ExportPdfPayload) => pdfTask.run(payload, true),
 })

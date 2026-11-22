@@ -9,6 +9,7 @@ export type ExportStatus = (typeof exportStatuses)[number]
 
 /** Что из личных данных попадает в PDF; по умолчанию ничего */
 export type ExportOptions = {
+  previewWithoutBrief?: boolean
   includeClientName?: boolean
   includeAddress?: boolean
   includePhone?: boolean

@@ -62,6 +62,19 @@ describe('Gdeslon XML → CSV → каталог', () => {
     expect(item?.attributes?.color).toBe('бежевый')
   })
 
+  it('читает единицы оси из атрибута YML, пропускает противоречивые и неподдержанные единицы', () => {
+    const [item] = imported(
+      offer(`
+      <param name="Ширина" unit="mm">840 мм</param>
+      <param name="Глубина" unit="мм">450</param>
+      <param name="Высота" unit="cm">1010 мм</param>`),
+    )
+    expect(item?.attributes?.dimensionsCm).toEqual({ width: 84, depth: 45 })
+    expect(
+      imported(offer('<param name="Глубина" unit="дюйм">45</param>'))[0]?.attributes?.dimensionsCm,
+    ).toBeUndefined()
+  })
+
   it('сохраняет готовую рекламную пометку с кавычками и переносом', () => {
     const disclosure = 'Реклама. ООО "Магазин", ИНН 1234567890\nerid example-123'
     const [item] = imported(offer(`<info kind="advertising"><![CDATA[${disclosure}]]></info>`))

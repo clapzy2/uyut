@@ -8,7 +8,7 @@ import {
 } from '@uyut/db'
 import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { CATALOG_FRESH_FOR_MS } from './freshness'
-import type { CatalogSubcategory } from './subcategories'
+import { type CatalogSubcategory, shoeCabinetTitle } from './subcategories'
 import type { FeedItem } from './types'
 
 /** Хеш того, что влияет на векторы: изменилось — считаем заново. */
@@ -233,6 +233,10 @@ async function searchSimilar(
   ]
   if (query.subcategory) {
     conditions.push(eq(catalogItems.subcategory, query.subcategory))
+    // В старых фидах обувницы попадали в раздел комодов. Фильтруем до LIMIT.
+    if (query.subcategory === 'dresser') {
+      conditions.push(sql`${catalogItems.title} !~* ${shoeCabinetTitle.source}`)
+    }
   }
   if (query.minPriceKopecks !== undefined) {
     conditions.push(sql`${catalogItems.priceKopecks} >= ${query.minPriceKopecks}`)
@@ -255,6 +259,8 @@ async function searchSimilar(
 
 export type CatalogHealth = {
   total: number
+  fresh: number
+  freshWithImageVector: number
   embedded: number
   withDimensions: number
   stale: number
@@ -271,6 +277,9 @@ export async function countItems(db: Database): Promise<CatalogHealth> {
   const [row] = await db
     .select({
       total: sql<number>`count(*)`,
+      fresh: sql<number>`count(*) filter (where ${catalogFreshnessCondition()})`,
+      freshWithImageVector: sql<number>`count(*) filter (where ${catalogFreshnessCondition()}
+        and ${catalogItems.imageEmbedding} is not null and ${catalogItems.embeddedHash} = ${catalogItems.contentHash})`,
       embedded: sql<number>`count(*) filter (where ${catalogItems.imageEmbedding} is not null)`,
       withDimensions: sql<number>`count(*) filter (where ${catalogItems.attributes}->'dimensionsCm'->>'width' is not null and ${catalogItems.attributes}->'dimensionsCm'->>'depth' is not null)`,
       stale: sql<number>`count(*) filter (where ${catalogItems.lastSyncedAt} < now() - interval '48 hours')`,
@@ -279,6 +288,8 @@ export async function countItems(db: Database): Promise<CatalogHealth> {
     .where(eq(catalogItems.inStock, true))
   return {
     total: Number(row?.total ?? 0),
+    fresh: Number(row?.fresh ?? 0),
+    freshWithImageVector: Number(row?.freshWithImageVector ?? 0),
     embedded: Number(row?.embedded ?? 0),
     withDimensions: Number(row?.withDimensions ?? 0),
     stale: Number(row?.stale ?? 0),

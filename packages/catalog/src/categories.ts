@@ -28,7 +28,7 @@ const rules: Array<{ category: CatalogCategory; pattern: RegExp }> = [
   {
     category: 'storage',
     pattern:
-      /стеллаж|шкаф|комод|тумб|полк|этажерк|витрин|консол|shelf|shelving|cabinet|wardrobe|dresser|drawers|sideboard|console/i,
+      /стеллаж|шкаф|комод|обувниц|тумб|полк|этажерк|витрин|консол|shelf|shelving|cabinet|wardrobe|dresser|drawers|sideboard|console/i,
   },
   {
     category: 'decor',

@@ -78,7 +78,10 @@ const RULES: Partial<Record<CatalogCategory, Rule[]>> = {
 
 // Когда в одном названии встречаются два предметных слова, главное слово в начале надёжнее:
 // «Ваза для цветов» — всё ещё ваза, а «Растение в вазе» — растение.
+export const shoeCabinetTitle = /^\s*обувниц/i
+
 const LEADING_RULES: Partial<Record<CatalogCategory, Rule[]>> = {
+  storage: [{ subcategory: 'cabinet', pattern: shoeCabinetTitle }],
   decor: [
     { subcategory: 'mirror', pattern: /^\s*зеркал/i },
     { subcategory: 'picture', pattern: /^\s*(?:картин|постер|панно|фоторам|репродукц)/i },

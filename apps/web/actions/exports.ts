@@ -28,6 +28,7 @@ const exportInputSchema = z.object({
   projectId: z.uuid(),
   options: z
     .object({
+      previewWithoutBrief: z.boolean().optional(),
       includeClientName: z.boolean().optional(),
       includeAddress: z.boolean().optional(),
       includePhone: z.boolean().optional(),

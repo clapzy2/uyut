@@ -10,7 +10,7 @@ import {
   upsertFeedItems,
 } from '@uyut/catalog'
 import { auditLog, type ConceptObject, catalogItems, projects, users } from '@uyut/db'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runTool } from '@/lib/chat/tools'
 import { getDb } from '@/lib/db'
@@ -158,6 +158,53 @@ describe('catalog in a real database', () => {
       limit: 20,
     })
     expect(own(excluding)).toEqual([])
+  })
+
+  it('в поиске комода исключает старую карточку обувницы до ограничения выдачи', async () => {
+    const db = getDb()
+    const prefix = randomUUID()
+    const externalIds = [`${prefix}-dresser`, `${prefix}-shoe`]
+    try {
+      await upsertFeedItems(
+        db,
+        externalIds.map((externalId, index) => ({
+          source: SOURCE,
+          externalId,
+          category: 'storage',
+          subcategory: 'dresser',
+          title: index === 0 ? 'Комод Анджи' : 'Обувница подвесная Сайрис',
+          priceKopecks: 87654321,
+          affiliateUrl: 'https://shop.test/item',
+          images: [],
+          inStock: true,
+        })),
+      )
+      const rows = await db
+        .select()
+        .from(catalogItems)
+        .where(inArray(catalogItems.externalId, externalIds))
+      await saveEmbeddings(
+        db,
+        rows.map((row) => ({
+          id: row.id,
+          hash: row.contentHash,
+          imageEmbedding: axis(row.externalId === externalIds[1] ? 10 : 11),
+          textEmbedding: null,
+        })),
+      )
+      const matches = await findSimilar(db, {
+        category: 'storage',
+        subcategory: 'dresser',
+        strictSubcategory: true,
+        embedding: axis(10),
+        minPriceKopecks: 87654321,
+        maxPriceKopecks: 87654321,
+        limit: 1,
+      })
+      expect(matches.map((item) => item.externalId)).toEqual([externalIds[0]])
+    } finally {
+      await db.delete(catalogItems).where(inArray(catalogItems.externalId, externalIds))
+    }
   })
 
   it('оценивает подборку по лучшему совпадению, даже если товар выше бюджета стоит после дешёвого', async () => {

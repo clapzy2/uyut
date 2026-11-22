@@ -120,6 +120,19 @@ function Row({
           <span className="block text-[12px] text-ink-2">{item.catalogNotice}</span>
         ) : null}
         {sizeSource ? <span className="block text-[12px] text-ink-2">{sizeSource}</span> : null}
+        {item.sizeReading.baseLabel ? (
+          <span className="block text-[12px] text-ink-2">{item.sizeReading.baseLabel}</span>
+        ) : null}
+        {item.sizeReading.specificationUrl ? (
+          <a
+            href={item.sizeReading.specificationUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[12px] text-ink-2 underline underline-offset-4"
+          >
+            Размеры у поставщика
+          </a>
+        ) : null}
         {item.dimensionsCm && !(item.dimensionsCm.width && item.dimensionsCm.depth) ? (
           <span className="block text-[12px] leading-relaxed text-ink-2">
             Для 2D-расстановки уточните ширину и глубину.

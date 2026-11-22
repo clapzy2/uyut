@@ -1,5 +1,5 @@
-import type { CatalogAttributes, CatalogSource } from '@uyut/db'
 import type { DimensionsCm } from './dimensions'
+import { type SizeProduct, supplierSize } from './supplier-size'
 
 type DimensionSource = 'user' | 'store-parameters' | 'store-text'
 
@@ -8,13 +8,28 @@ export type ItemSizeReading = {
   source: DimensionSource | 'mixed' | 'unknown'
   confidence: 'confirmed' | 'reported' | 'parsed' | 'unknown'
   dimensionSources?: Partial<Record<keyof DimensionsCm, DimensionSource>>
+  specificationUrl?: string
+  baseLabel?: string
 }
 
 /** Пользователь уточняет отдельные мерки; остальные сохраняются из карточки магазина. */
 export function effectiveSizeReading(
   item: { dimensionsCm: DimensionsCm | null },
-  product: { attributes: CatalogAttributes | null; source?: CatalogSource },
+  product: SizeProduct,
 ): ItemSizeReading {
+  const spec = supplierSize(product)
+  const base = spec?.baseCm
+  const references = {
+    ...(spec ? { specificationUrl: spec.sourceUrl } : {}),
+    ...(base
+      ? {
+          baseLabel:
+            'diameter' in base
+              ? `Диаметр основания ${base.diameter} см`
+              : `Основание ${base.width} × ${base.depth} см`,
+        }
+      : {}),
+  }
   const dimensionsCm: DimensionsCm = {}
   const dimensionSources: NonNullable<ItemSizeReading['dimensionSources']> = {}
   for (const axis of ['width', 'depth', 'height'] as const) {
@@ -37,29 +52,33 @@ export function effectiveSizeReading(
         product.attributes?.dimensionsSource?.[axis] === 'store-parameters'
           ? 'store-parameters'
           : 'store-text'
+    } else if (spec?.dimensionsCm[axis] !== undefined) {
+      dimensionsCm[axis] = spec.dimensionsCm[axis]
+      dimensionSources[axis] = 'store-parameters'
     }
   }
   const sources = Object.values(dimensionSources)
   if (sources.length === 0) {
-    return { dimensionsCm: null, source: 'unknown', confidence: 'unknown' }
+    return { dimensionsCm: null, source: 'unknown', confidence: 'unknown', ...references }
   }
   if (sources.every((source) => source === 'user')) {
-    return { dimensionsCm, source: 'user', confidence: 'confirmed' }
+    return { dimensionsCm, source: 'user', confidence: 'confirmed', ...references }
   }
   const confidence = sources.includes('store-text') ? 'parsed' : 'reported'
   if (sources.includes('user')) {
-    return { dimensionsCm, source: 'mixed', confidence, dimensionSources }
+    return { dimensionsCm, source: 'mixed', confidence, dimensionSources, ...references }
   }
   return {
     dimensionsCm,
     source: confidence === 'reported' ? 'store-parameters' : 'store-text',
     confidence,
+    ...references,
   }
 }
 
 export function effectiveSize(
   item: { dimensionsCm: DimensionsCm | null },
-  product: { attributes: CatalogAttributes | null; source?: CatalogSource },
+  product: SizeProduct,
 ): DimensionsCm | null {
   return effectiveSizeReading(item, product).dimensionsCm
 }
